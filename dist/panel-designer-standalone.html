@@ -143,6 +143,14 @@ body.room:not(.r3d) #r3d{display:none}
 .cct-f select{width:5.5em}
 .cct-n{flex:1;text-align:right;font-size:12px;color:#8a8a8f;padding-bottom:10px;white-space:nowrap}
 
+/* ---- switch → load links ---- */
+.swx{border-top:1px solid #e5e5ea;margin-top:4px;padding-top:12px}
+.swx>b{font-size:13px;color:#4a4a4f}
+.swx-w{border:1px solid #e5e5ea;border-radius:12px;padding:8px 10px;margin-top:8px}
+.swx-h{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#8a8a8f;margin-bottom:4px}
+.mbox label.swx-c{display:flex;flex-direction:row;align-items:center;gap:10px;font-size:13.5px;font-weight:500;color:#1c1c1e;margin:0;padding:7px 0;text-align:left}
+.mbox label.swx-c input{width:22px;height:22px;flex:none;padding:0;margin:0}
+
 </style>
 </head>
 <body class="sheet-open">
@@ -198,7 +206,7 @@ body.room:not(.r3d) #r3d{display:none}
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.1.0';
+const APP_VERSION='2.2.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -950,6 +958,11 @@ function normRoom(r){const d=defaultRoom();const o=Object.assign(d,r||{});o.wall
   let c=o.circuits.find(x=>x.name.toLowerCase()===nm.toLowerCase());
   if(!c){c={id:uid(),name:nm,mcb:guessMcb(nm),cable:guessCable(nm)};o.circuits.push(c);ids.add(c.id)}
   i.props.circuit=c.id}
+ /* Switch links: fresh arrays sized to the current gang count, with any
+    id whose load has since been deleted dropped. */
+ const live=new Set(o.items.map(i=>i.id));
+ for(const i of o.items){const def=RDEFS[i.type];if(!def.ways)continue;
+  i.props.controls=normControls(i.props.controls,Math.max(1,def.ways(i.props))).map(row=>row.filter(id=>live.has(id)))}
  return o}
 const wallLen=k=>(k==='A'||k==='C')?RM().w:RM().l;
 const surfLen=k=>k==='ceil'?RM().w:wallLen(k);
@@ -981,6 +994,25 @@ function guessCable(nm){const s=nm.toUpperCase();
  return 1.5}
 function guessMcb(nm){const c=guessCable(nm);return c>=4?'C20':c>=2.5?'B20':'B10'}
 
+/* ---------- switch → load links ----------
+   A switch stores props.controls: one array of item ids per gang/way.
+   Kept out of RDEFS defaults on purpose — Object.assign copies an array
+   by reference, so a shared default [] would have every switch in the
+   room writing into the same one. normControls() always builds fresh
+   arrays instead, and is applied wherever a switch is created or edited. */
+const SWITCHABLE=new Set(['dl','ledp','fan','pend','wl','exh']);
+const isLoad=it=>SWITCHABLE.has(it.type);
+const waysOf=it=>{const d=rdef(it);return d.ways?Math.max(1,d.ways(it.props)):0};
+const loadsIn=()=>RM().items.filter(isLoad);
+/* Position is part of the name on purpose: a room with four identical
+   "LED light · Ceiling" entries is unpickable without it. */
+const loadName=it=>{const m=v=>(v/1000).toFixed(1);
+ return `${it.props.label||rname(it)} · ${it.surf==='ceil'?`Ceiling ${m(it.x)}×${m(it.y)} m`:`Wall ${it.surf} ${m(it.x)} m`}`};
+function normControls(v,n){const out=[];for(let i=0;i<n;i++)out.push((Array.isArray(v&&v[i])?v[i]:[]).filter(x=>typeof x==='string'));return out}
+/** Every switch way that drives this load, as {sw, way}. */
+function switchesFor(id){const out=[];for(const s of RM().items){const n=waysOf(s);if(!n)continue;
+ const c=normControls(s.props.controls,n);c.forEach((row,i)=>{if(row.includes(id))out.push({sw:s,way:i})})}return out}
+
 /* ---------- symbols (SVG in mm, origin = item top-left, size w×h) ---------- */
 const plate=(w,h,fill='#fbfbf8')=>`<rect x="1.5" y="1.5" width="${w-3}" height="${h-3}" rx="6" fill="${fill}" stroke="#8d969c" stroke-width="2.5"/>`;
 const rocker=(cx,cy,rw,rh)=>`<rect x="${cx-rw/2}" y="${cy-rh/2}" width="${rw}" height="${rh}" rx="3" fill="#f3f3ef" stroke="#9aa1a6" stroke-width="1.6"/><rect x="${cx-rw/2+3}" y="${cy-rh/2+3}" width="${rw-6}" height="${rh/2-3}" rx="2" fill="#dfe1dd"/>`;
@@ -997,13 +1029,13 @@ const RW=o=>Object.assign({surf:'wall',depth:12,model:'box',props:[RP_LBL,RP_CCT
 const RC=o=>Object.assign({surf:'ceil',depth:30,model:'box',props:[RP_LBL,RP_CCT],defaults:{label:'',circuit:''}},o);
 const withP=(extra,defs)=>({props:[...extra,RP_LBL,RP_CCT],defaults:Object.assign({label:'',circuit:''},defs)});
 const RDEFS={
- sw:RW({name:p=>`Switch ${p.gang}-gang`,w:p=>p.gang>2?146:86,h:86,mount:1200,...withP([{k:'gang',label:'Gangs',type:'select',opts:[1,2,3,4]}],{gang:1}),
+ sw:RW({name:p=>`Switch ${p.gang}-gang`,w:p=>p.gang>2?146:86,h:86,mount:1200,ways:p=>+p.gang,...withP([{k:'gang',label:'Gangs',type:'select',opts:[1,2,3,4]}],{gang:1}),
   draw:(p,w,h)=>plate(w,h)+rockers(w,h,p.gang),desc:p=>`Switch ${p.gang}-gang 1-way plate`}),
- swb:RW({name:p=>`Switch board ${p.mods}M`,w:p=>p.mods<=4?146:p.mods<=8?266:266,h:p=>p.mods<=8?86:146,mount:1200,...withP([{k:'mods',label:'Modules',type:'select',opts:[2,4,6,8,12]}],{mods:6}),
+ swb:RW({name:p=>`Switch board ${p.mods}M`,ways:p=>+p.mods,w:p=>p.mods<=4?146:p.mods<=8?266:266,h:p=>p.mods<=8?86:146,mount:1200,...withP([{k:'mods',label:'Modules',type:'select',opts:[2,4,6,8,12]}],{mods:6}),
   draw:(p,w,h)=>{const rows=p.mods>8?2:1,per=Math.ceil(p.mods/rows),cw=(w-24)/per,ch=(h-16)/rows-6;let s=plate(w,h);
    for(let r=0;r<rows;r++)for(let i=0;i<per&&r*per+i<p.mods;i++){const x=12+i*cw,y=8+r*(ch+6)+3;s+=`<rect x="${x+1.5}" y="${y}" width="${cw-3}" height="${ch}" rx="2" fill="#f0f0ec" stroke="#a7adb2" stroke-width="1.2"/><rect x="${x+cw/2-5}" y="${y+ch*.2}" width="10" height="${ch*.45}" rx="2" fill="#d8dad6" stroke="#9aa1a6" stroke-width="1"/>`}
    return s},desc:p=>`Modular switch board ${p.mods}-module`}),
- fanreg:RW({name:'Fan regulator',w:86,h:86,mount:1200,draw:(p,w,h)=>plate(w,h)+`<circle cx="${w/2}" cy="${h/2}" r="22" fill="#e9eae6" stroke="#8d969c" stroke-width="2"/><circle cx="${w/2}" cy="${h/2}" r="15" fill="#d5d8d4"/><rect x="${w/2-2}" y="${h/2-21}" width="4" height="12" fill="#5b6166"/>`+mt(w/2,h-8,'FAN',8,'#6b7075'),desc:()=>'Fan regulator plate'}),
+ fanreg:RW({name:'Fan regulator',w:86,h:86,mount:1200,ways:()=>1,draw:(p,w,h)=>plate(w,h)+`<circle cx="${w/2}" cy="${h/2}" r="22" fill="#e9eae6" stroke="#8d969c" stroke-width="2"/><circle cx="${w/2}" cy="${h/2}" r="15" fill="#d5d8d4"/><rect x="${w/2-2}" y="${h/2-21}" width="4" height="12" fill="#5b6166"/>`+mt(w/2,h-8,'FAN',8,'#6b7075'),desc:()=>'Fan regulator plate'}),
  sk13:RW({name:p=>(p.twin==='yes'?'Twin socket':'Socket')+' 13A',w:p=>p.twin==='yes'?146:86,h:86,mount:300,...withP([{k:'twin',label:'Twin',type:'select',opts:['no','yes']},{k:'sw',label:'Switched',type:'select',opts:['yes','no']}],{twin:'no',sw:'yes'}),
   draw:(p,w,h)=>{const n=p.twin==='yes'?2:1;let s=plate(w,h);for(let i=0;i<n;i++){const cx=w*(i+.5)/n-(p.sw==='yes'?8:0);s+=bsSock(cx,h/2+4);if(p.sw==='yes')s+=rocker(cx+30,h/2-14,12,22)}return s},
   desc:p=>`${p.twin==='yes'?'Twin':'Single'} socket 13A BS1363${p.sw==='yes'?' switched':''}`}),
@@ -1099,13 +1131,19 @@ function clampItem(it){const w=iw(it),h=ih(it),len=surfLen(it.surf),H=surfH(it.s
 function roomAdd(type,props,title){const d=RDEFS[type];pushUndo();
  let sf=d.surf==='ceil'?'ceil':(surf!=='3d'&&surf!=='ceil'?surf:lastWall);
  const it={id:uid(),type,surf:sf,x:0,y:0,props:Object.assign({},d.defaults,props)};
+ if(d.ways)it.props.controls=normControls(it.props.controls,Math.max(1,d.ways(it.props)));
  const len=surfLen(sf),H=surfH(sf);it.x=len/2;it.y=d.surf==='ceil'?H/2:(d.model==='door'?ih(it)/2:d.mount);
  // avoid landing exactly on another item
  for(let k=0;k<12;k++){const hit=RM().items.some(o=>o.surf===sf&&Math.abs(o.x-it.x)<(iw(o)+iw(it))/2&&Math.abs(o.y-it.y)<(ih(o)+ih(it))/2);if(!hit)break;it.x+=(k%2?-1:1)*(k+1)*Math.max(150,iw(it)+40)}
  clampItem(it);RM().items.push(it);rsel=it.id;
  const moved=surf!==sf;if(moved)setSurf(sf,true);else roomCommit();save();
  toast(`Added ${title} to ${surfName(sf)}${d.surf!=='ceil'?' — drag to place':''}`)}
-function roomDel(){const it=rfind(rsel);if(!it)return;pushUndo();S.room.items=RM().items.filter(i=>i.id!==it.id);rsel=null;roomCommit()}
+function roomDel(){const it=rfind(rsel);if(!it)return;pushUndo();S.room.items=RM().items.filter(i=>i.id!==it.id);
+ /* Drop it from any switch that was driving it — normRoom prunes this on
+    load too, but not until the next load, and a stale id would route a
+    cable to a point that no longer exists. */
+ RM().items.forEach(s=>{if(rdef(s).ways&&Array.isArray(s.props.controls))s.props.controls=s.props.controls.map(r=>r.filter(id=>id!==it.id))});
+ rsel=null;roomCommit()}
 function roomDup(){const it=rfind(rsel);if(!it)return;pushUndo();const c=JSON.parse(JSON.stringify(it));c.id=uid();c.x+=iw(it)+40;clampItem(c);RM().items.push(c);rsel=c.id;roomCommit()}
 function openRoomProps(id){const it=rfind(id);if(!it)return;const d=rdef(it),isW=it.surf!=='ceil';
  const fields=d.props.map(f=>{const v=it.props[f.k];
@@ -1117,9 +1155,19 @@ function openRoomProps(id){const it=rfind(id);if(!it)return;const d=rdef(it),isW
  const surfSel=isW?`<label>Wall<select name="surf">${WALL_KEYS.map(k=>`<option value="${k}" ${k===it.surf?'selected':''}>${esc(surfName(k))}</option>`).join('')}</select></label>`:'';
  const pos=isW?`<label>Centre from left end of wall (mm)<input name="x" type="number" inputmode="numeric" value="${Math.round(it.x)}"></label>${d.model==='door'?'':`<label>${d.model==='window'?'Sill height (mm)':'Height to centre (mm)'}<input name="y" type="number" inputmode="numeric" value="${Math.round(d.model==='window'?it.y-ih(it)/2:it.y)}"></label>`}`
   :`<label>From ${esc(surfName('D'))} (mm)<input name="x" type="number" inputmode="numeric" value="${Math.round(it.x)}"></label><label>From ${esc(surfName('A'))} (mm)<input name="y" type="number" inputmode="numeric" value="${Math.round(it.y)}"></label>`;
- openModal(`<h3>${esc(rname(it))}</h3><form id="rpf">${surfSel}${pos}${fields}<p class="muted">${esc(d.desc?d.desc(it.props):'')}</p><div class="mact"><button type="button" class="bb" data-close>Cancel</button><button class="bb pri">Apply</button></div></form>`,box=>{
+ /* Switching: one checkbox list per gang, over every light/fan in the
+    room. Rendered inside the same form so one Apply saves the lot. */
+ const nWays=waysOf(it),loads=loadsIn();
+ const ctl=nWays?normControls(it.props.controls,nWays):[];
+ const switching=!nWays?'':`<div class="swx"><b>Switching</b>${!loads.length?'<p class="muted">No lights or fans in the room yet.</p>':
+  ctl.map((row,i)=>`<div class="swx-w"><span class="swx-h">${nWays>1?'Gang '+(i+1):'Controls'}</span>${
+   loads.map(L=>`<label class="swx-c"><input type="checkbox" name="sw_${i}" value="${esc(L.id)}" ${row.includes(L.id)?'checked':''}>${esc(loadName(L))}</label>`).join('')}</div>`).join('')}</div>`;
+ openModal(`<h3>${esc(rname(it))}</h3><form id="rpf">${surfSel}${pos}${fields}${switching}<p class="muted">${esc(d.desc?d.desc(it.props):'')}</p><div class="mact"><button type="button" class="bb" data-close>Cancel</button><button class="bb pri">Apply</button></div></form>`,box=>{
   box.querySelector('#rpf').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);pushUndo();
    for(const f of d.props){let v=fd.get('p_'+f.k);if(v==null)continue;if(f.type==='select'&&typeof f.opts[0]==='number')v=Number(v);it.props[f.k]=v}
+   /* After the props loop, so a gang count changed in this same submit
+      decides how many ways are kept. */
+   if(d.ways){const n=Math.max(1,d.ways(it.props)),out=[];for(let i=0;i<n;i++)out.push(fd.getAll('sw_'+i).map(String));it.props.controls=out}
    if(isW&&fd.get('surf'))it.surf=fd.get('surf');
    const x=Number(fd.get('x')),y=Number(fd.get('y'));if(isFinite(x))it.x=x;if(fd.get('y')!=null&&isFinite(y))it.y=d.model==='window'?y+ih(it)/2:y;
    clampItem(it);closeModal();texCache.clear();if(surf!=='3d'&&surf!==it.surf)setSurf(it.surf,true);else roomCommit()}})}
