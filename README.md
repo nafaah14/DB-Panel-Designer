@@ -1,4 +1,4 @@
-# DB Panel Designer — v2.10.0
+# DB Panel Designer — v2.10.1
 
 Phone-first designer for **DB panels** (DIN rails, breakers, busbars, wiring) and **room electrical layouts** (switches, sockets, lights, fans) with a 3D view. Vanilla JS, works offline, data saved on the device.
 
@@ -41,6 +41,7 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 - Bill of materials with wire lengths (+15%) and rail usage, CSV export
 
 ## Changelog
+- 2.10.1 — **Fix: importing a project exported by 2.9 or later failed.** The import check still required a top-level `items` array, which exports stopped having when panels became a list — so the app rejected its own backups, breaking the only way to move a project between devices. Both shapes are accepted now
 - 2.10.0 — **A room's DB is a real panel.** Link a DB to one of the project's boards and it *is* that board — designed in the panel editor, and its circuits become the ones the room can use. Circuits moved from the room onto the panel that owns them, so there is one list shared by the panel editor and every room that board feeds, rather than two copies kept in step. With two DBs on two boards, each point routes back to the one that feeds it. Projects upgrade on load: circuits move onto the board, ids intact, and each room's DB is linked to it automatically
 - 2.9.0 — **Multiple panels per project.** A project holds a list of boards, each with its own devices, wires and layers (Menu → Panels: add, switch, rename, duplicate, delete). Duplicating one re-ids every device and re-points all its wiring and rail references at the copy. Room circuits can now name a breaker on *any* panel, labelled with which board it is on. Projects from 2.8 and earlier — where the document itself was the panel — are wrapped into the list on load, unchanged
 - 2.8.0 — **Panel size and a fit check.** The enclosure takes a custom W×H as well as presets, and the preset list now includes typical consumer-unit sizes by way count (4–24), worked from DIN module geometry. Menu → Panel size & fit reports whether the design fits the box, naming each part outside the usable area and by how much, with rail modules used vs free. Way-count sizes are a starting point to check a real enclosure against, not a manufacturer's spec

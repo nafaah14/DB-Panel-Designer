@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.10.0';
+const APP_VERSION='2.10.1';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -798,7 +798,17 @@ function exportPNG(){if(!S.items.length)return toast('Nothing to export');if(S.l
  img.onload=()=>{const c=document.createElement('canvas');c.width=Math.round(w*sc);c.height=Math.round(h*sc);const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);c.toBlob(b=>b?shareOrDownload(b,fname()+'.png'):toast('Export failed'),'image/png')};
  img.onerror=()=>toast('Export failed');img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg)}
 function exportJSON(){const o={app:'db-panel-designer',appVersion:APP_VERSION,schema:2,name:S.name,exported:new Date().toISOString(),...docData()};shareOrDownload(new Blob([JSON.stringify(o,null,1)],{type:'application/json'}),fname()+'.json')}
-$('#fileIn').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{const o=JSON.parse(await f.text());if(!Array.isArray(o.items)||!Array.isArray(o.wires))throw 0;newProject({...o,name:(o.name||'Imported panel')+''});toast('Project imported')}catch(_){toast('Not a valid panel project file')}};
+/* Accepts both shapes: `panels` (2.9+) and the old flat items/wires
+   document. Checking only for top-level items/wires — as this did
+   until 2.10.1 — rejected the app's own exports the moment panels
+   arrived, which quietly broke the one backup and sharing route there
+   is. */
+$('#fileIn').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
+ try{const o=JSON.parse(await f.text());
+  const ok=Array.isArray(o.panels)?o.panels.length>0:(Array.isArray(o.items)&&Array.isArray(o.wires));
+  if(!ok)throw 0;
+  newProject({...o,name:(o.name||'Imported panel')+''});toast('Project imported')}
+ catch(_){toast('Not a valid panel project file')}};
 
 /* ---------- BOM ---------- */
 /* ---------- panels: switch, add, duplicate, delete ---------- */
