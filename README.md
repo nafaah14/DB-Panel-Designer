@@ -1,4 +1,4 @@
-# DB Panel Designer — v2.0.0
+# DB Panel Designer — v2.1.0
 
 Phone-first designer for **DB panels** (DIN rails, breakers, busbars, wiring) and **room electrical layouts** (switches, sockets, lights, fans) with a 3D view. Vanilla JS, works offline, data saved on the device.
 
@@ -9,6 +9,10 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 `npm run serve` → http://localhost:5173 · `npm run build` → standalone file. See **CLAUDE.md** for architecture and conventions.
 
 ## Features
+### Room wiring (new in 2.1)
+- **⚡ Circuits** — one list per room: name, MCB rating and cable size. Add, rename, re-rate, delete; each row shows how many points are on it.
+- Every point picks its circuit from that list (Edit → Circuit). Unassigned is allowed.
+
 ### Room designer (new in 2.0)
 - Switch **Panel / Room** at the top. Room = 4 walls + ceiling, size and wall names in ⚙ Room.
 - Each wall opens as a flat elevation: drag points, snaps to 50 mm, standard heights (300 sockets, 1200 switches, 2100 AC…) and to other points; distance-to-corner and height dimensions; "All heights" mode.
@@ -27,6 +31,7 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 - Bill of materials with wire lengths (+15%) and rail usage, CSV export
 
 ## Changelog
+- 2.1.0 — Room wiring, part 1: a **Circuits** list per room (name, MCB, cable size) via ⚡ Circuits, and a circuit picker on every point in place of the old free-text field. Points reference a circuit by id, so renaming one never orphans them; deleting one leaves its points unassigned rather than deleting them. Projects from 2.0 upgrade automatically — existing free-text circuit names become real circuits, with the MCB and cable size guessed from the name (lighting 1.5 mm², sockets 2.5 mm², A/C 4 mm²)
 - 2.0.0 — Room designer v1 (wall & ceiling editors, 3D view with Three.js r149); project split into index.html / css / js / vendor for VS Code; standalone build script; CLAUDE.md
 - 1.2.0 — Rails placed end-to-end (or overlapping) join into one continuous rail; devices snap to whole modules or flush to neighbours (no half-module gaps); "Close gaps" on a selected rail; rail length is free entry; width option for voltage relay, kWh meter and RCBO; demo board packed tight
 - 1.1.1 — Fix: taps on phones could stop selecting parts (stale touch pointer was treated as a pinch); devices now take priority over nearby wire tap zones; larger touch tap tolerance; errors shown on screen instead of failing silently

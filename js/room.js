@@ -24,12 +24,25 @@ let surf='3d', rsel=null, rview={x:0,y:0,k:1}, lastWall='A', allDims=false;
 const RM=()=>S.room;
 
 /* ---------- room model ---------- */
-function defaultRoom(){return {name:'Room 1',w:3600,l:3000,h:2700,t:150,walls:{A:'North',B:'East',C:'South',D:'West'},items:[]}}
+function defaultRoom(){return {name:'Room 1',w:3600,l:3000,h:2700,t:150,walls:{A:'North',B:'East',C:'South',D:'West'},items:[],circuits:[]}}
 function normRoom(r){const d=defaultRoom();const o=Object.assign(d,r||{});o.walls=Object.assign(defaultRoom().walls,(r&&r.walls)||{});
  ['w','l','h','t'].forEach(k=>o[k]=Math.max(k==='t'?50:1000,+o[k]||d[k]));
  o.items=(Array.isArray(o.items)?o.items:[]).filter(i=>i&&RDEFS[i.type]).map(i=>{const def=RDEFS[i.type];
   const sf=def.surf==='ceil'?'ceil':(WALL_KEYS.includes(i.surf)?i.surf:'A');
   return {id:String(i.id||uid()),type:i.type,surf:sf,x:+i.x||0,y:+i.y||0,props:Object.assign({},def.defaults,i.props||{})}});
+ o.circuits=(Array.isArray(o.circuits)?o.circuits:[]).filter(c=>c&&c.name)
+  .map(c=>({id:String(c.id||uid()),name:String(c.name).trim()||'Circuit',mcb:String(c.mcb||'').trim(),cable:+c.cable||1.5}));
+ /* props.circuit held free text before v2.1 (and still does in any older
+    project or exported JSON). Anything that isn't a known circuit id is
+    read as a circuit NAME: matched to an existing circuit, or promoted
+    into a new one. That upgrades old projects into the circuits list
+    instead of silently dropping what they had. */
+ const ids=new Set(o.circuits.map(c=>c.id));
+ for(const i of o.items){const v=i.props.circuit;if(!v||ids.has(v))continue;
+  const nm=String(v).trim();if(!nm){i.props.circuit='';continue}
+  let c=o.circuits.find(x=>x.name.toLowerCase()===nm.toLowerCase());
+  if(!c){c={id:uid(),name:nm,mcb:guessMcb(nm),cable:guessCable(nm)};o.circuits.push(c);ids.add(c.id)}
+  i.props.circuit=c.id}
  return o}
 const wallLen=k=>(k==='A'||k==='C')?RM().w:RM().l;
 const surfLen=k=>k==='ceil'?RM().w:wallLen(k);
@@ -43,6 +56,24 @@ const iw=it=>{const d=rdef(it);return typeof d.w==='function'?d.w(it.props):d.w}
 const ih=it=>{const d=rdef(it);return typeof d.h==='function'?d.h(it.props):d.h};
 const rname=it=>{const d=rdef(it);return typeof d.name==='function'?d.name(it.props):d.name};
 
+/* ---------- circuits ----------
+   A circuit is {id,name,mcb,cable}. Points reference one by id in
+   props.circuit; '' means unassigned. Wiring (routing, cable lengths)
+   is grouped by circuit, so this list is the spine of room wiring. */
+const CABLE_SIZES=[1,1.5,2.5,4,6,10];
+const circuits=()=>RM().circuits||[];
+const circuitById=id=>circuits().find(c=>c.id===id)||null;
+const circuitLabel=c=>c?`${c.name}${c.mcb?' · '+c.mcb:''}${c.cable?' · '+c.cable+' mm²':''}`:'—';
+const circuitItems=id=>RM().items.filter(i=>i.props.circuit===id);
+/* Sensible starting values when an old free-text name is promoted to a
+   real circuit — a lighting circuit on 2.5 mm² would just be wrong. */
+function guessCable(nm){const s=nm.toUpperCase();
+ if(/\bA\/?C\b|AIRCON|HEATER|W\/?H|WATER/.test(s))return 4;
+ if(/LIGHT|LAMP|FAN|LTG/.test(s))return 1.5;
+ if(/SKT|SOCKET|POWER|PLUG/.test(s))return 2.5;
+ return 1.5}
+function guessMcb(nm){const c=guessCable(nm);return c>=4?'C20':c>=2.5?'B20':'B10'}
+
 /* ---------- symbols (SVG in mm, origin = item top-left, size w×h) ---------- */
 const plate=(w,h,fill='#fbfbf8')=>`<rect x="1.5" y="1.5" width="${w-3}" height="${h-3}" rx="6" fill="${fill}" stroke="#8d969c" stroke-width="2.5"/>`;
 const rocker=(cx,cy,rw,rh)=>`<rect x="${cx-rw/2}" y="${cy-rh/2}" width="${rw}" height="${rh}" rx="3" fill="#f3f3ef" stroke="#9aa1a6" stroke-width="1.6"/><rect x="${cx-rw/2+3}" y="${cy-rh/2+3}" width="${rw-6}" height="${rh/2-3}" rx="2" fill="#dfe1dd"/>`;
@@ -54,7 +85,7 @@ function rockers(w,h,n){const rw=Math.min(30,(w-16)/n-6),out=[];for(let i=0;i<n;
 
 /* ---------- item library ---------- */
 const RP_LBL={k:'label',label:'Label (shown in 3D)',type:'text'};
-const RP_CCT={k:'circuit',label:'Circuit / MCB (for wiring)',type:'text'};
+const RP_CCT={k:'circuit',label:'Circuit',type:'circuit'};
 const RW=o=>Object.assign({surf:'wall',depth:12,model:'box',props:[RP_LBL,RP_CCT],defaults:{label:'',circuit:''}},o);
 const RC=o=>Object.assign({surf:'ceil',depth:30,model:'box',props:[RP_LBL,RP_CCT],defaults:{label:'',circuit:''}},o);
 const withP=(extra,defs)=>({props:[...extra,RP_LBL,RP_CCT],defaults:Object.assign({label:'',circuit:''},defs)});
@@ -133,7 +164,8 @@ function roomUpdUI(){const Rm=RM(),tabs=$('#roomTabs');
  const tb=(k,t,sub)=>`<button class="rtb ${surf===k?'on':''}" data-surf="${k}">${t}${sub?`<small>${esc(sub)}</small>`:''}</button>`;
  tabs.innerHTML=tb('3d','3D')+WALL_KEYS.map(k=>tb(k,'Wall '+k,Rm.walls[k])).join('')+tb('ceil','Ceiling')+
   (surf==='3d'?`<span class="rtsep"></span><button class="rtb" data-r3="reset">Reset view</button><button class="rtb ${settings.r3labels!==false?'on2':''}" data-r3="labels">Labels</button><button class="rtb ${settings.r3cut!==false?'on2':''}" data-r3="cut">Cutaway</button>`
-   :`<span class="rtsep"></span><button class="rtb ${allDims?'on2':''}" data-r2="dims">All heights</button>`)+`<button class="rtb" data-r3="room">⚙ Room</button>`;
+   :`<span class="rtsep"></span><button class="rtb ${allDims?'on2':''}" data-r2="dims">All heights</button>`)+
+  `<button class="rtb" data-r3="cct">⚡ Circuits</button><button class="rtb" data-r3="room">⚙ Room</button>`;
  const it=rsel&&rfind(rsel),sb=$('#selbar');
  if(it){const isW=it.surf!=='ceil',pos=isW?`${Math.round(it.x)} from left · h ${Math.round(it.y)}`:`${Math.round(it.x)} from ${Rm.walls.D?'W':'D'} · ${Math.round(it.y)} from ${Rm.walls.A?'N':'A'}`;
   sb.innerHTML=`<div class="ttl">${esc(rname(it))}${it.props.label?' · '+esc(it.props.label):''}<small>${esc(surfName(it.surf))} · ${pos}</small></div>${surf==='3d'?`<button class="bb pri" data-ra="goto">Open ${it.surf==='ceil'?'ceiling':'wall '+it.surf}</button>`:''}<button class="bb" data-ra="edit">Edit</button><button class="bb" data-ra="dup">Copy</button><button class="bb danger" data-ra="del">Delete</button><button class="bb" data-ra="close">✕</button>`;sb.classList.remove('hidden')}
@@ -147,6 +179,7 @@ $('#roomTabs').addEventListener('click',e=>{const b=e.target.closest('button');i
  else if(a==='labels'){settings.r3labels=settings.r3labels===false;saveSettings();updUI();req3D()}
  else if(a==='cut'){settings.r3cut=settings.r3cut===false;saveSettings();updUI();req3D()}
  else if(a==='dims'){allDims=!allDims;draw2D();updUI()}
+ else if(a==='cct')openCircuits();
  else if(a==='room')openRoomSettings()});
 $('#selbar').addEventListener('click',e=>{if(appMode!=='room')return;const b=e.target.closest('[data-ra]');if(!b)return;const a=b.dataset.ra,it=rfind(rsel);if(!it)return;
  if(a==='goto')setSurf(it.surf,true);else if(a==='edit')openRoomProps(it.id);else if(a==='dup')roomDup();else if(a==='del')roomDel();else if(a==='close'){rselect(null)}});
@@ -169,6 +202,9 @@ function roomDel(){const it=rfind(rsel);if(!it)return;pushUndo();S.room.items=RM
 function roomDup(){const it=rfind(rsel);if(!it)return;pushUndo();const c=JSON.parse(JSON.stringify(it));c.id=uid();c.x+=iw(it)+40;clampItem(c);RM().items.push(c);rsel=c.id;roomCommit()}
 function openRoomProps(id){const it=rfind(id);if(!it)return;const d=rdef(it),isW=it.surf!=='ceil';
  const fields=d.props.map(f=>{const v=it.props[f.k];
+  if(f.type==='circuit'){const cs=circuits();
+   return `<label>${f.label}<select name="p_${f.k}"><option value="">— unassigned —</option>${cs.map(c=>`<option value="${esc(c.id)}" ${c.id===v?'selected':''}>${esc(circuitLabel(c))}</option>`).join('')}</select></label>`+
+    (cs.length?'':`<p class="muted">No circuits yet — make one with ⚡ Circuits.</p>`)}
   if(f.type==='select')return `<label>${f.label}<select name="p_${f.k}">${f.opts.map(o=>`<option value="${esc(o)}" ${String(o)===String(v)?'selected':''}>${esc(o)}</option>`).join('')}</select></label>`;
   return `<label>${f.label}<input name="p_${f.k}" value="${esc(v)}" maxlength="40" autocomplete="off"></label>`}).join('');
  const surfSel=isW?`<label>Wall<select name="surf">${WALL_KEYS.map(k=>`<option value="${k}" ${k===it.surf?'selected':''}>${esc(surfName(k))}</option>`).join('')}</select></label>`:'';
@@ -180,6 +216,34 @@ function openRoomProps(id){const it=rfind(id);if(!it)return;const d=rdef(it),isW
    if(isW&&fd.get('surf'))it.surf=fd.get('surf');
    const x=Number(fd.get('x')),y=Number(fd.get('y'));if(isFinite(x))it.x=x;if(fd.get('y')!=null&&isFinite(y))it.y=d.model==='window'?y+ih(it)/2:y;
    clampItem(it);closeModal();texCache.clear();if(surf!=='3d'&&surf!==it.surf)setSurf(it.surf,true);else roomCommit()}})}
+/* Circuits manager: add, rename, re-rate and delete. Edits are applied
+   together on Save so a half-finished rename never lands on the points
+   referencing it. */
+function openCircuits(){
+ const draw=()=>{const cs=circuits();
+  /* Stacked rows rather than a table: three 16 px inputs side by side
+     overflow the modal well before a 412 px phone screen. */
+  const rows=cs.map(c=>{const n=circuitItems(c.id).length;
+   return `<div class="cct">
+    <div class="cct-l"><input name="n_${c.id}" value="${esc(c.name)}" maxlength="24" autocomplete="off" placeholder="Circuit name">
+     <button type="button" class="bb danger" data-delc="${c.id}" title="Delete circuit">✕</button></div>
+    <div class="cct-l"><label class="cct-f">MCB<input name="m_${c.id}" value="${esc(c.mcb)}" maxlength="8" autocomplete="off" placeholder="B10"></label>
+     <label class="cct-f">Cable mm²<select name="c_${c.id}">${CABLE_SIZES.map(s=>`<option value="${s}" ${+c.cable===s?'selected':''}>${s}</option>`).join('')}</select></label>
+     <span class="cct-n">${n} point${n===1?'':'s'}</span></div></div>`}).join('');
+  openModal(`<h3>Circuits</h3><form id="ccf">
+   ${rows||'<p class="muted">No circuits yet — add the first one below.</p>'}
+   <div class="mact" style="justify-content:flex-start;margin-top:10px"><button type="button" class="bb" id="cAdd">+ Add circuit</button></div>
+   <p class="muted">Points are assigned to a circuit from their own Edit form. Deleting a circuit leaves its points unassigned — it never deletes them.</p>
+   <div class="mact"><button type="button" class="bb" data-close>Cancel</button><button class="bb pri">Save</button></div></form>`,box=>{
+   box.querySelector('#cAdd').onclick=()=>{pushUndo();RM().circuits.push({id:uid(),name:'Circuit '+(circuits().length+1),mcb:'B10',cable:1.5});save();draw()};
+   box.querySelectorAll('[data-delc]').forEach(b=>b.onclick=()=>{const id=b.dataset.delc,c=circuitById(id),n=circuitItems(id).length;
+    if(n&&!confirm(`Delete "${c.name}"? ${n} point${n===1?'':'s'} will be left unassigned.`))return;
+    pushUndo();RM().circuits=circuits().filter(x=>x.id!==id);RM().items.forEach(i=>{if(i.props.circuit===id)i.props.circuit=''});save();draw()});
+   box.querySelector('#ccf').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);pushUndo();
+    for(const c of circuits()){const nm=String(fd.get('n_'+c.id)??c.name).trim();
+     c.name=nm||c.name;c.mcb=String(fd.get('m_'+c.id)??c.mcb).trim();c.cable=+fd.get('c_'+c.id)||c.cable}
+    closeModal();roomCommit()}})};
+ draw()}
 function openRoomSettings(){const Rm=RM();
  openModal(`<h3>Room settings</h3><form id="rsf"><label>Room name<input name="name" value="${esc(Rm.name)}" maxlength="40"></label>
  <label>Width — Wall A / C length (mm)<input name="w" type="number" inputmode="numeric" value="${Rm.w}"></label>
