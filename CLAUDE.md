@@ -23,7 +23,8 @@ Scripts are classic `<script>` tags sharing one global scope (top-level `const`/
 
 ## Data model (localStorage)
 - `pdes.projects.v1` → `{ [projectId]: { name, updated, appVersion, data } }`, `pdes.current`, `pdes.settings`
-- `data = { items, wires, layers, defs, room }` — `migrate()` in panel.js upgrades older projects; `normRoom()` in room.js fills room defaults.
+- `data = { panels, panelId, rooms, roomId }` — `migrate()` in panel.js upgrades older projects; `normRoom()` in room.js fills room defaults.
+- **`S.items` / `S.wires` / `S.layers` / `S.defs` are accessors onto the current panel**, installed by `bindPanelViews()`. They are not copies: seven places reassign them outright (`S.wires=S.wires.filter(…)`), and a setter is what makes those writes land in the right panel. Reassign `S.panels` itself when replacing the list (see `restore()`), never the views.
 - Undo/redo snapshots the whole `data` JSON (`pushUndo()` before a change, then `commit()` / `roomCommit()`).
 
 ### Panel designer (js/panel.js)
@@ -56,10 +57,15 @@ Scripts are classic `<script>` tags sharing one global scope (top-level `const`/
 - `toast()` for feedback, `openModal()` for forms, `reportError()` shows errors on screen.
 - Headless testing: Playwright + Chromium; for 3D launch with `--use-gl=swiftshader --enable-unsafe-swiftshader`.
 
+## Testing gotcha
+A **service worker from another localhost project** (Daybook, cache `daybook-shell-v3`) can hijack `localhost:5173` and serve stale JS no matter what the dev server's cache headers say. If a change seems not to take effect, check `navigator.serviceWorker.getRegistrations()` before suspecting anything else — this cost several debugging rounds.
+
 ## Roadmap
 - **v2: room wiring — done (2.1–2.3).** See "Room wiring" above.
 - **v3 — done bar the floor plan:** panel-breaker links (2.4), elevations sheet (2.5), multiple rooms (2.6).
-- **Next: the floor plan.** Rooms exist as a list but have no position relative to each other, which is what a floor plan needs — at minimum an x/y offset and a rotation per room, then a plan view that draws them together. Worth settling first: do adjacent rooms share a wall, or does each keep its own four?
+- **Done since:** real wiring topology (2.7), panel size + fit check (2.8), multiple panels (2.9).
+- **Next: bind a room's DB to a panel** — `db` items get `props.panel`; circuits move from the room onto the panel that owns them (agreed: the panel is the single owner, no two-way sync), so a room shows the circuits of whichever board its DB points at. `roomsUsingPanel()` and the `props.panel` clean-up in `openPanels()` are already in place for it.
+- **Then: the floor plan.** Rooms exist as a list but have no position relative to each other, which is what a floor plan needs — at minimum an x/y offset and a rotation per room, then a plan view that draws them together. Worth settling first: do adjacent rooms share a wall, or does each keep its own four?
 - Still not done, deliberately: conduit is radial (each point measured back to the board, not looped in), cable colours aren't split L/N/E, and junction boxes aren't used as routing waypoints.
 
 ### Rooms (2.6)

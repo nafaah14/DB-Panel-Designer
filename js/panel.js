@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.8.0';
+const APP_VERSION='2.9.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -198,7 +198,16 @@ const PANEL_LIB=[
 ];
 
 /* ---------- document state ---------- */
-let S={name:'Untitled panel',items:[],wires:[],layers:defaultLayers(),defs:{items:'base',wires:'wires'},room:null}, curId=null;
+/* Placeholder until the first migrate(); shaped like a real document so
+   anything touching S before a project loads sees an empty panel rather
+   than undefined. bindPanelViews is applied in migrate(). */
+let S={name:'Untitled panel',
+ panels:[{id:'p1',name:'Panel 1',items:[],wires:[],layers:defaultLayers(),defs:{items:'base',wires:'wires'}}],
+ panelId:'p1',rooms:[],roomId:'',
+ get items(){return curPanel().items},set items(v){curPanel().items=v},
+ get wires(){return curPanel().wires},set wires(v){curPanel().wires=v},
+ get layers(){return curPanel().layers},set layers(v){curPanel().layers=v},
+ get defs(){return curPanel().defs},set defs(v){curPanel().defs=v}}, curId=null;
 /** Which designer is showing: 'panel' (DB board) or 'room' (walls / ceiling / 3D). Room code lives in js/room.js */
 let appMode=settings.mode==='room'?'room':'panel';
 let sel=[], mode='select', pending=null, view={x:0,y:0,k:1};
@@ -232,37 +241,63 @@ const g9=v=>settings.snap?Math.round(v/9)*9:Math.round(v);
 
 /* ---------- layers ---------- */
 function defaultLayers(){return [{id:'base',name:'Components',visible:true,locked:false},{id:'wires',name:'Wires',visible:true,locked:false}]}
-function migrate(doc){
- const L=Array.isArray(doc.layers)&&doc.layers.length?doc.layers.map(l=>({id:String(l.id),name:String(l.name||'Layer'),visible:l.visible!==false,locked:!!l.locked})):defaultLayers();
+/** One panel: its own items, wires, layers and layer defaults. */
+function migratePanel(p,i){
+ const L=Array.isArray(p.layers)&&p.layers.length?p.layers.map(l=>({id:String(l.id),name:String(l.name||'Layer'),visible:l.visible!==false,locked:!!l.locked})):defaultLayers();
  const ids=new Set(L.map(l=>l.id));
- const defs=Object.assign({items:L[0].id,wires:(L.find(l=>l.id==='wires')||L[L.length-1]).id},doc.defs||{});
+ const defs=Object.assign({items:L[0].id,wires:(L.find(l=>l.id==='wires')||L[L.length-1]).id},p.defs||{});
  if(!ids.has(defs.items))defs.items=L[0].id;if(!ids.has(defs.wires))defs.wires=L[L.length-1].id;
- const items=(doc.items||[]).map(normalize).filter(Boolean);items.forEach(i=>{if(!ids.has(i.layer))i.layer=defs.items});
- const wires=(doc.wires||[]).filter(w=>w&&w.a&&w.b).map(w=>{delete w.by;if(!ids.has(w.layer))w.layer=defs.wires;if(!Array.isArray(w.path)||!w.path.length)delete w.path;return w});
+ const items=(p.items||[]).map(normalize).filter(Boolean);items.forEach(it=>{if(!ids.has(it.layer))it.layer=defs.items});
+ const wires=(p.wires||[]).filter(w=>w&&w.a&&w.b).map(w=>{delete w.by;if(!ids.has(w.layer))w.layer=defs.wires;if(!Array.isArray(w.path)||!w.path.length)delete w.path;return w});
+ return {id:String(p.id||uid()),name:String(p.name||`Panel ${i+1}`).trim()||`Panel ${i+1}`,items,wires,layers:L,defs}}
+/**
+ * S.items / S.wires / S.layers / S.defs are accessors onto the CURRENT
+ * panel, not copies. Seven places in this file reassign them outright
+ * (`S.wires=S.wires.filter(...)` and friends); with a plain alias those
+ * writes would quietly detach from the panel they came from. Going
+ * through a setter means every one of them lands in the right panel and
+ * none of that code had to change.
+ */
+const curPanel=()=>S.panels.find(p=>p.id===S.panelId)||S.panels[0];
+function bindPanelViews(o){
+ ['items','wires','layers','defs'].forEach(k=>Object.defineProperty(o,k,{
+  get(){const p=curPanel.call(null);return p?p[k]:undefined},
+  set(v){const p=curPanel.call(null);if(p)p[k]=v},
+  enumerable:false,configurable:true}));
+ return o}
+function migrate(doc){
+ /* Panels: `panels` since 2.9. Before that the document WAS the panel,
+    so an old doc is wrapped as the first one and opens unchanged. */
+ const raw=Array.isArray(doc.panels)&&doc.panels.length?doc.panels:[doc];
+ const panels=raw.map(migratePanel);
+ const panelId=panels.some(p=>p.id===doc.panelId)?doc.panelId:panels[0].id;
  /* Rooms: `rooms` since 2.6. Before that a project held one `room`,
     which is wrapped into the list here so older projects and exported
     JSON open unchanged. */
  const rooms=(Array.isArray(doc.rooms)&&doc.rooms.length?doc.rooms:[doc.room]).map(normRoom);
  const rids=new Set(rooms.map(r=>r.id));
  const roomId=rids.has(doc.roomId)?doc.roomId:rooms[0].id;
- /* Room circuits can point at a panel breaker by id. This is the only
-    place that sees both lists, so it is where a link to a breaker that
-    has since been deleted gets cleared. */
- const pids=new Set(items.map(i=>i.id));
+ /* Room circuits can point at a breaker on any panel. This is the only
+    place that sees every panel and every room, so it is where a link to
+    a breaker that has since been deleted gets cleared. */
+ const pids=new Set(panels.flatMap(p=>p.items.map(i=>i.id)));
  rooms.forEach(r=>r.circuits.forEach(c=>{if(c.breaker&&!pids.has(c.breaker))c.breaker=''}));
- return {name:doc.name||'Untitled panel',items,wires,layers:L,defs,rooms,roomId}}
+ return bindPanelViews({name:doc.name||'Untitled panel',panels,panelId,rooms,roomId})}
 const layerOf=id=>S.layers.find(l=>l.id===id)||S.layers[0];
 const isVis=o=>layerOf(o.layer).visible;
 const isLocked=o=>layerOf(o.layer).locked;
 const objOf=s=>s.kind==='item'?find(s.id):S.wires.find(w=>w.id===s.id);
 
 /* ---------- persistence & undo ---------- */
-const docData=()=>({items:S.items,wires:S.wires,layers:S.layers,defs:S.defs,rooms:S.rooms,roomId:S.roomId});
+const docData=()=>({panels:S.panels,panelId:S.panelId,rooms:S.rooms,roomId:S.roomId});
 function save(){if(!curId)return;const P=loadProjects();P[curId]={name:S.name,updated:Date.now(),appVersion:APP_VERSION,data:docData()};saveProjects(P);lsSet(LS_C,curId)}
 const snap=()=>JSON.stringify(docData());
 function pushUndo(){undoS.push(snap());if(undoS.length>80)undoS.shift();redoS=[];updButtons()}
 function restore(js){const o=JSON.parse(js),keep=new Map(S.layers.map(l=>[l.id,{visible:l.visible,locked:l.locked}]));
- S.items=o.items;S.wires=o.wires;S.layers=o.layers;S.defs=o.defs;
+ /* Panels are replaced wholesale, so assign the list — not the views,
+    which would write into the panel being replaced. */
+ S.panels=(Array.isArray(o.panels)&&o.panels.length?o.panels:[o]).map(migratePanel);
+ S.panelId=S.panels.some(p=>p.id===o.panelId)?o.panelId:S.panels[0].id;
  S.rooms=(Array.isArray(o.rooms)&&o.rooms.length?o.rooms:[o.room]).map(normRoom);
  S.roomId=S.rooms.some(r=>r.id===o.roomId)?o.roomId:S.rooms[0].id;
  S.layers.forEach(l=>{const k=keep.get(l.id);if(k)Object.assign(l,k)});sel=[];pending=null;commit()}
@@ -544,7 +579,11 @@ function updUI(){if(appMode==='room'){updButtons();$('#wirebar').classList.add('
  sb.innerHTML=html;sb.classList.toggle('hidden',!html);
  $('#titleChip').classList.toggle('hidden',mode==='wire'||!!html);
  const hid=S.layers.filter(l=>!l.visible).length;
- $('#titleChip').innerHTML=`${esc(S.name)}<small>v${APP_VERSION}${hid?` · ${hid} layer${hid>1?'s':''} hidden`:''}</small>`}
+ const np=S.panels?S.panels.length:1,cp=curPanel();
+ /* Only name the panel when it adds something — a migrated project and
+    its only panel share a name, and printing it twice reads as a bug. */
+ const pn=np>1&&cp.name!==S.name?esc(cp.name)+' · ':'';
+ $('#titleChip').innerHTML=`${esc(S.name)}<small>${pn}v${APP_VERSION}${hid?` · ${hid} layer${hid>1?'s':''} hidden`:''}</small>`}
 const selWires=()=>sel.filter(s=>s.kind==='wire').map(s=>S.wires.find(w=>w.id===s.id)).filter(Boolean);
 $('#bars').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
  if(b.id==='titleChip')return openProjects();
@@ -629,6 +668,7 @@ function openProps(id){const it=find(id);if(!it)return;const d=D(it);
 function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="projects">Projects <small>${esc(S.name)}</small></button>
  <button data-m="mode">${appMode==='room'?'Panel designer':'Room designer'} <small>switch</small></button>${appMode==='room'?'<button data-m="roomset">Room settings <small>size, wall names</small></button>':''}
+ <button data-m="panels">Panels <small>${S.panels.length>1?esc(curPanel().name)+' · '+S.panels.length:'add, switch, duplicate'}</small></button>
  <button data-m="bom">Bill of materials <small>BOM & rail usage</small></button>${appMode==='room'?'<button data-m="sheet">Elevations sheet <small>all walls + ceiling, one page</small></button>':'<button data-m="encl">Panel size &amp; fit <small>enclosure, does it fit</small></button>'}
  <button data-m="png">Export image <small>PNG</small></button>
  <button data-m="svg">Export drawing <small>SVG</small></button>
@@ -641,7 +681,7 @@ function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="help">How to use</button>
  <button data-m="about">About <small>v${APP_VERSION}</small></button></div><div class="mact"><button class="bb" data-close>Close</button></div>`,box=>{
  box.querySelector('.mlist').onclick=e=>{const b=e.target.closest('[data-m]');if(!b)return;const m=b.dataset.m;closeModal();
-  ({projects:openProjects,mode:()=>setAppMode(appMode==='room'?'panel':'room'),roomset:()=>openRoomSettings(),bom:openBOM,sheet:()=>roomSheet(),encl:openEncl,png:()=>appMode==='room'?roomExport():exportPNG(),svg:()=>appMode==='room'?roomExport(true):shareOrDownload(new Blob([exportSVG().svg],{type:'image/svg+xml'}),fname()+'.svg'),json:exportJSON,import:()=>$('#fileIn').click(),
+  ({projects:openProjects,mode:()=>setAppMode(appMode==='room'?'panel':'room'),roomset:()=>openRoomSettings(),bom:openBOM,sheet:()=>roomSheet(),encl:openEncl,panels:openPanels,png:()=>appMode==='room'?roomExport():exportPNG(),svg:()=>appMode==='room'?roomExport(true):shareOrDownload(new Blob([exportSVG().svg],{type:'image/svg+xml'}),fname()+'.svg'),json:exportJSON,import:()=>$('#fileIn').click(),
    clearw:()=>{if(!S.wires.length)return toast('No wires');if(confirm('Remove all wires?')){pushUndo();S.wires=[];sel=[];commit()}},layers:()=>toggleLayers(true),
    rerouteall:()=>{if(!S.wires.some(w=>w.path))return toast('All wires are already auto-routed');pushUndo();S.wires.forEach(w=>delete w.path);commit();toast('Wires re-routed')},settings:openSettings,help:openHelp,
    about:()=>openModal(`<h3>DB Panel Designer</h3><p class="muted">Version ${APP_VERSION}<br>Panel + room designer · works offline · data stored on this device.<br>3D by three.js (MIT).</p><div class="mact"><button class="bb pri" data-close>OK</button></div>`)})[m]()}})}
@@ -709,6 +749,56 @@ function exportJSON(){const o={app:'db-panel-designer',appVersion:APP_VERSION,sc
 $('#fileIn').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{const o=JSON.parse(await f.text());if(!Array.isArray(o.items)||!Array.isArray(o.wires))throw 0;newProject({...o,name:(o.name||'Imported panel')+''});toast('Project imported')}catch(_){toast('Not a valid panel project file')}};
 
 /* ---------- BOM ---------- */
+/* ---------- panels: switch, add, duplicate, delete ---------- */
+function switchPanel(id){if(!S.panels.some(p=>p.id===id))return;
+ S.panelId=id;sel=[];pending=null;multi=false;invalidate();
+ if(appMode!=='panel')setAppMode('panel');else{render();updUI();renderLayers();fit()}
+ save()}
+/** Which rooms point a DB at this panel — shown so deleting one tells
+ *  you what it will unlink. Rooms gain that link in the next release;
+ *  until then this is simply empty. */
+const roomsUsingPanel=id=>(S.rooms||[]).filter(r=>r.items.some(i=>i.type==='db'&&i.props.panel===id));
+function openPanels(){
+ const draw=()=>{const ps=S.panels;
+  const rows=ps.map(p=>{const dev=p.items.filter(i=>D(i)&&D(i).occupy).length,used=roomsUsingPanel(p.id);
+   return `<div class="cct">
+    <div class="cct-l"><input name="n_${p.id}" value="${esc(p.name)}" maxlength="30" autocomplete="off" placeholder="Panel name">
+     ${ps.length>1?`<button type="button" class="bb danger" data-delp="${p.id}" title="Delete panel">✕</button>`:''}</div>
+    <div class="cct-l"><span class="cct-n" style="text-align:left">${dev} device${dev===1?'':'s'} · ${p.wires.length} wire${p.wires.length===1?'':'s'}${used.length?' · used by '+esc(used.map(r=>r.name).join(', ')):''}</span></div>
+    <div class="cct-l">${p.id===S.panelId?`<span class="cct-cur">Editing this panel</span>`:`<button type="button" class="bb" data-gop="${p.id}">Open</button>`}
+     <button type="button" class="bb" data-dupp="${p.id}">Duplicate</button></div></div>`}).join('');
+  openModal(`<h3>Panels</h3><form id="pnf">${rows}
+   <div class="mact" style="justify-content:flex-start;margin-top:10px"><button type="button" class="bb" id="pAdd">+ Add panel</button></div>
+   <p class="muted">A panel can stand on its own, or be the board a room's DB points at. Room circuits can name a breaker on any panel in the project.</p>
+   <div class="mact"><button type="button" class="bb" data-close>Cancel</button><button class="bb pri">Save names</button></div></form>`,box=>{
+   box.querySelector('#pAdd').onclick=()=>{pushUndo();
+    const p=migratePanel({name:'Panel '+(S.panels.length+1)},S.panels.length);S.panels.push(p);save();draw()};
+   box.querySelectorAll('[data-gop]').forEach(b=>b.onclick=()=>{const id=b.dataset.gop;closeModal();switchPanel(id);toast('Editing '+curPanel().name)});
+   box.querySelectorAll('[data-dupp]').forEach(b=>b.onclick=()=>{pushUndo();
+    const src=S.panels.find(p=>p.id===b.dataset.dupp);
+    const c=migratePanel(JSON.parse(JSON.stringify(src)),S.panels.length);
+    /* Fresh ids, and wires re-pointed at them — a wire names its ends
+       as 'itemId:termId', so a shallow copy would wire the duplicate
+       back into the original's devices. */
+    c.id=uid();c.name=src.name+' copy';
+    const m=new Map();c.items.forEach(i=>{const n=uid();m.set(i.id,n);i.id=n});
+    c.items.forEach(i=>{if(i.rail&&m.has(i.rail))i.rail=m.get(i.rail)});
+    const re=e=>{const [a,b2]=String(e).split(':');return m.has(a)?`${m.get(a)}:${b2}`:e};
+    c.wires=c.wires.filter(w=>{const a=String(w.a).split(':')[0],b2=String(w.b).split(':')[0];return m.has(a)&&m.has(b2)})
+     .map(w=>Object.assign({},w,{id:uid(),a:re(w.a),b:re(w.b)}));
+    S.panels.push(c);save();draw()});
+   box.querySelectorAll('[data-delp]').forEach(b=>b.onclick=()=>{const p=S.panels.find(x=>x.id===b.dataset.delp),used=roomsUsingPanel(p.id);
+    if(!confirm(`Delete "${p.name}" and its design?${used.length?`\n\n${used.length} room DB(s) point at it and will be unlinked.`:''}`))return;
+    pushUndo();S.panels=S.panels.filter(x=>x.id!==p.id);
+    (S.rooms||[]).forEach(r=>r.items.forEach(i=>{if(i.type==='db'&&i.props.panel===p.id)i.props.panel=''}));
+    (S.rooms||[]).forEach(r=>r.circuits.forEach(c=>{if(c.breaker&&!S.panels.some(x=>x.items.some(i=>i.id===c.breaker)))c.breaker=''}));
+    if(S.panelId===p.id){S.panelId=S.panels[0].id;sel=[];invalidate()}
+    save();draw()});
+   box.querySelector('#pnf').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);pushUndo();
+    for(const p of S.panels){const nm=String(fd.get('n_'+p.id)??p.name).trim();if(nm)p.name=nm}
+    closeModal();commit()}})};
+ draw()}
+
 /* ---------- enclosure fit ----------
    Answers "will this design actually go in that box?" — everything is
    already positioned in drawing units (2 px = 1 mm), so the check is a

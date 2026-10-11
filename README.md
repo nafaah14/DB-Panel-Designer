@@ -1,4 +1,4 @@
-# DB Panel Designer — v2.8.0
+# DB Panel Designer — v2.9.0
 
 Phone-first designer for **DB panels** (DIN rails, breakers, busbars, wiring) and **room electrical layouts** (switches, sockets, lights, fans) with a 3D view. Vanilla JS, works offline, data saved on the device.
 
@@ -36,9 +36,11 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 - Layers: add/rename/reorder/delete, show/hide, lock, default layer for new parts and new wires, move parts or wires between layers
 - Multi-select (Select more / Shift-click): move to layer, delete
 - Undo/redo, multiple projects, JSON import/export, PNG/SVG export of visible layers
+- **Multiple panels** (2.9) — Menu → Panels: as many boards as the job needs, each with its own devices, wiring and layers. Switch, rename, duplicate (wiring re-pointed at the copy) or delete. A room circuit can name a breaker on any panel in the project.
 - Bill of materials with wire lengths (+15%) and rail usage, CSV export
 
 ## Changelog
+- 2.9.0 — **Multiple panels per project.** A project holds a list of boards, each with its own devices, wires and layers (Menu → Panels: add, switch, rename, duplicate, delete). Duplicating one re-ids every device and re-points all its wiring and rail references at the copy. Room circuits can now name a breaker on *any* panel, labelled with which board it is on. Projects from 2.8 and earlier — where the document itself was the panel — are wrapped into the list on load, unchanged
 - 2.8.0 — **Panel size and a fit check.** The enclosure takes a custom W×H as well as presets, and the preset list now includes typical consumer-unit sizes by way count (4–24), worked from DIN module geometry. Menu → Panel size & fit reports whether the design fits the box, naming each part outside the usable area and by how much, with rail modules used vs free. Way-count sizes are a starting point to check a real enclosure against, not a manufacturer's spec
 - 2.7.0 — **Wiring follows the real topology.** Cables no longer all run radially to the board: the DB feeds switches and sockets (live, red) and a switch feeds the lights and fans assigned to its gangs (switched live, yellow). A light with no circuit of its own inherits the circuit of the switch driving it; one not on any switch still gets a direct feed. Conductor colour is now meaning rather than decoration, so selecting a circuit changes line weight instead of hue, and the elevations sheet carries a key
 - 2.6.0 — v3, part 3: **multiple rooms per project**. A project holds a list of rooms (🏠 Rooms — switch, add, rename, duplicate, delete) all sharing one panel, so a circuit in any room can point at its breakers. Duplicating a room deep-copies it with fresh ids and remaps its circuit and switch→load links onto the copy. The bill of materials covers every room, prefixed by room name. Single-room projects from 2.5 and earlier are wrapped into the list on load with nothing lost

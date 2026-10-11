@@ -95,12 +95,18 @@ function guessMcb(nm){const c=guessCable(nm);return c>=4?'C20':c>=2.5?'B20':'B10
    from the panel just reads as unlinked, and migrate() clears the id on
    next load. */
 const BREAKER_TYPES=new Set(['mcb','mcb1pn','rcbo','rcd']);
-const panelBreakers=()=>(typeof S==='object'&&S&&Array.isArray(S.items)?S.items:[]).filter(i=>BREAKER_TYPES.has(i.type));
+/* Breakers are looked up across EVERY panel, not just the one on
+   screen — a room's circuits may hang off a board the panel editor
+   isn't currently showing. */
+const allPanels=()=>(typeof S==='object'&&S&&Array.isArray(S.panels))?S.panels:[];
+const panelBreakers=()=>allPanels().flatMap(p=>p.items.filter(i=>BREAKER_TYPES.has(i.type)));
 const breakerById=id=>id?panelBreakers().find(i=>i.id===id)||null:null;
+const panelOfItem=id=>allPanels().find(p=>p.items.some(i=>i.id===id))||null;
 function breakerText(it){const p=it.props||{};
  return it.type==='rcd'?`RCD ${p.rating}A ${p.ma}mA`:`${p.curve||''}${p.rating}`}
 function breakerLabel(it){const d=DEFS[it.type],desc=d&&d.desc?d.desc(it.props):it.type;
- return (it.props&&it.props.label?it.props.label+' — ':'')+desc}
+ const pn=allPanels().length>1?panelOfItem(it.id):null;
+ return (pn?pn.name+' · ':'')+(it.props&&it.props.label?it.props.label+' — ':'')+desc}
 /** What a circuit's MCB reads as: the linked device if there is one,
  *  otherwise whatever was typed. */
 const circuitMcb=c=>{const b=breakerById(c.breaker);return b?breakerText(b):(c.mcb||'')};
