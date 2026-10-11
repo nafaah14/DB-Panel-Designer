@@ -170,32 +170,56 @@ function perimPath(k1,x1,k2,x2,hh){
  hits.sort((a,b)=>a.d-b.d);
  return [sToPt(s1,hh),...hits.map(h=>sToPt(h.s,hh)),sToPt(s2,hh)]}
 const seg3=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
-/** One point's run back to the board, as 3D points. */
-function routeTo(it,db){
+/** A cable enters the board at its top edge, not its centre. */
+const dbEntry=db=>({surf:db.surf,x:db.x,y:clamp(db.y+ih(db)/2,0,RM().h)});
+/** Conduit between any two points, wall or ceiling, as 3D points.
+ *  Direction only affects the order of the list, not the geometry. */
+function routeBetween(a,b){
  const Rm=RM(),hh=runH(),out=[];
  const push=p=>{const l=out[out.length-1];if(!l||seg3(l,p)>1)out.push(p)};
- const dbTop=clamp(db.y+ih(db)/2,0,Rm.h);
- if(it.surf==='ceil'){
-  const T=wallPt(db.surf,db.x,Rm.h);                 // ceiling edge above the board
-  push(ceilPt(it.x,it.y));push(ceilPt(T[0],it.y));push(ceilPt(T[0],T[2]));
- }else{
-  push(wallPt(it.surf,it.x,it.y));                   // the point itself
-  push(wallPt(it.surf,it.x,hh));                     // up (or down) to the run
-  perimPath(it.surf,it.x,db.surf,db.x,hh).forEach(push);
- }
- push(wallPt(db.surf,db.x,dbTop));                   // down into the board
+ const aC=a.surf==='ceil',bC=b.surf==='ceil';
+ push(aC?ceilPt(a.x,a.y):wallPt(a.surf,a.x,a.y));
+ if(aC&&bC){push(ceilPt(b.x,a.y));push(ceilPt(b.x,b.y));return out}
+ if(aC&&!bC){const T=wallPt(b.surf,b.x,Rm.h);        // ceiling edge above b
+  push(ceilPt(T[0],a.y));push(ceilPt(T[0],T[2]));push(wallPt(b.surf,b.x,b.y));return out}
+ if(!aC&&bC){const T=wallPt(a.surf,a.x,Rm.h);        // up a's wall onto the ceiling
+  push(T);push(ceilPt(b.x,T[2]));push(ceilPt(b.x,b.y));return out}
+ push(wallPt(a.surf,a.x,hh));                        // up (or down) to the run
+ perimPath(a.surf,a.x,b.surf,b.x,hh).forEach(push);  // around at run height
+ push(wallPt(b.surf,b.x,b.y));
  return out}
 const routeLen=P=>{let L=0;for(let i=1;i<P.length;i++)L+=seg3(P[i-1],P[i]);return L};
-/** Every cable in the room: one run per assigned point back to the DB.
- *  Radial (each point measured to the board) rather than looped-in —
- *  stated in the BOM, since it reads longer than a real loop-in install. */
+/** Which circuit a point is actually on. An explicit choice always
+ *  wins; a light or fan left blank inherits the circuit of the switch
+ *  driving it, because that is the breaker it hangs off in reality. */
+function effCircuit(it){const own=circuitById(it.props.circuit);if(own)return own;
+ if(isLoad(it)){const s=switchesFor(it.id)[0];if(s)return circuitById(s.sw.props.circuit)}
+ return null}
+const effCircuitId=it=>{const c=effCircuit(it);return c?c.id:''};
+/**
+ * Every cable in the room, following how the room is actually wired:
+ *   DB  -> switch        live feed            (red)
+ *   switch -> light/fan  switched live        (yellow)
+ *   DB  -> socket, etc.  live + neutral       (red)
+ * A light with no switch driving it falls back to a direct feed, so it
+ * still gets a cable rather than silently disappearing from the BOM.
+ *
+ * Lengths are per point back to its source, not looped in — the BOM
+ * says so, since a real loop-in install comes out shorter.
+ */
 function roomRuns(){const Rm=RM();if(!Rm)return [];
  const db=Rm.items.find(i=>i.type==='db'&&i.surf!=='ceil');if(!db)return [];
- const out=[];
- for(const c of circuits()){for(const it of circuitItems(c.id)){if(it.id===db.id)continue;
-  const pts=routeTo(it,db);if(pts.length<2)continue;
-  out.push({circuit:c,item:it,pts,len:routeLen(pts)})}}
+ const entry=dbEntry(db),out=[];
+ const add=(c,it,from,kind,a,b)=>{const pts=routeBetween(a,b);if(pts.length<2)return;
+  out.push({circuit:c,item:it,from,kind,pts,len:routeLen(pts)})};
+ for(const it of Rm.items){
+  if(it.id===db.id||rdef(it).opening)continue;
+  const c=effCircuit(it);if(!c)continue;
+  if(isLoad(it)){const s=switchesFor(it.id)[0];
+   if(s){add(c,it,s.sw,'switched',s.sw,it);continue}}
+  add(c,it,db,'feed',it,entry)}
  return out}
+const RUN_COLOR={feed:'#d62828',switched:'#e9b800'};
 /* --- projecting a 3D run back onto the surface being drawn --- */
 function onWall(k,P){const W=wallGeo(k);const dx=P[0]-W.o[0],dz=P[2]-W.o[2];
  const perp=dx*W.n[0]+dz*W.n[2],sx=dx*W.d[0]+dz*W.d[2];
@@ -555,10 +579,12 @@ function draw2D(){if(appMode!=='room'||surf==='3d')return;const Rm=RM(),isC=surf
  const ry=isC?H+Rm.t+48*u:H+90+18*u;for(let x=0;x<=len+1;x+=500){o+=ln(x,ry-5*u,x,ry+5*u,'#8a8f94');o+=halo(x,ry+17*u,x%1000?'':(x/1000)+' m',9.5*u,'#8a8f94')}o+=ln(0,ry,len,ry,'#8a8f94');
  // conduit runs (under the items, so a point is never hidden by its own cable)
  if(settings.rwire!==false){const sel=rsel&&rfind(rsel);
-  for(const r of roomRuns()){const lit=sel&&(r.item.id===sel.id||r.circuit.id===sel.props.circuit);
+  /* Colour carries the conductor (red feed / yellow switched), so
+     selection changes weight and opacity rather than hue. */
+  for(const r of roomRuns()){const lit=sel&&(r.item.id===sel.id||r.from.id===sel.id||r.circuit.id===effCircuitId(sel));
    for(const seg of runOnSurf(r.pts,surf)){
     const d=seg.map((p,i)=>`${i?'L':'M'}${p.x} ${isC?p.y:Rm.h-p.y}`).join(' ');
-    o+=`<path d="${d}" fill="none" stroke="${lit?'#ff9500':'#7a6cff'}" stroke-width="${lit?3.2:2}" stroke-linecap="round" stroke-linejoin="round" opacity="${lit?1:.55}" vector-effect="non-scaling-stroke"/>`}}}
+    o+=`<path d="${d}" fill="none" stroke="${RUN_COLOR[r.kind]}" stroke-width="${lit?3.4:2}" stroke-linecap="round" stroke-linejoin="round" opacity="${lit?1:.45}" vector-effect="non-scaling-stroke"/>`}}}
  // items (openings first)
  const items=Rm.items.filter(i=>i.surf===surf).sort((a,b)=>(rdef(b).opening?1:0)-(rdef(a).opening?1:0));
  for(const it of items){const w=iw(it),h=ih(it),cx=it.x,cy=toSvgY(it);o+=`<g data-ri="${it.id}" transform="translate(${cx-w/2},${cy-h/2})">${rdef(it).draw(it.props,w,h)}<rect x="0" y="0" width="${w}" height="${h}" fill="#000" fill-opacity="0"/></g>`;
@@ -687,10 +713,10 @@ function build3D(){const t=T3;if(!t)return;const Rm=RM(),T=Rm.t;
    t.labels.push({el,pos:a,surf:it.surf,id:it.id})}}
  // conduit runs, nudged off the surface so they don't z-fight with it
  if(settings.rwire!==false){const sel=rsel&&rfind(rsel),wires=new THREE.Group();
-  for(const r of roomRuns()){const lit=sel&&(r.item.id===sel.id||r.circuit.id===sel.props.circuit);
+  for(const r of roomRuns()){const lit=sel&&(r.item.id===sel.id||r.from.id===sel.id||r.circuit.id===effCircuitId(sel));
    const v=r.pts.map(nudge).map(p=>new THREE.Vector3(p[0],p[1],p[2]));
    const g=new THREE.BufferGeometry().setFromPoints(v);
-   wires.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:lit?0xff9500:0x7a6cff,transparent:true,opacity:lit?1:.7})))}
+   wires.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:r.kind==='switched'?0xe9b800:0xd62828,transparent:true,opacity:lit?1:.6})))}
   t.root.add(wires);t.wires=wires}
  const s=rsel&&rfind(rsel);if(s){const o=t.wallItems[s.surf].children.find(c=>c.userData.rid===s.id);if(o){t.selBox=new THREE.BoxHelper(o,0x0a84ff);t.root.add(t.selBox)}}}
 function wallFacesCamera(W,cam){const n=V(W.n),o=V(W.o);return n.dot(cam.clone().sub(o))>0}
@@ -757,6 +783,11 @@ function roomSheet(asSvg){
  let o=`<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>`;
  o+=txt(GAP,250,`${Rm.name} — electrical elevations`,110,'#1c1c1e',700,'start');
  o+=txt(GAP,370,`${(Rm.w/1000).toFixed(2)} × ${(Rm.l/1000).toFixed(2)} × ${(Rm.h/1000).toFixed(2)} m · all dimensions mm · DB Panel Designer v${APP_VERSION}`,62,'#6b7075',500,'start');
+ /* Key, or red vs yellow on the drawings is anyone's guess. */
+ if(settings.rwire!==false){const ky=450;let kx=GAP;
+  [[RUN_COLOR.feed,'Live feed — board to switch / socket'],[RUN_COLOR.switched,'Switched live — switch to light / fan']].forEach(([col,lbl])=>{
+   o+=`<line x1="${kx}" y1="${ky-18}" x2="${kx+120}" y2="${ky-18}" stroke="${col}" stroke-width="12" stroke-linecap="round"/>`;
+   o+=txt(kx+150,ky,lbl,54,'#6b7075',500,'start');kx+=1500});}
  let y=HEAD;
  rows.forEach((row,ri)=>{row.forEach((c,ci)=>{const x=GAP+ci*(colW+GAP);
   o+=txt(x,y-40,c.k==='ceil'?'Ceiling (plan, looking down)':`${surfName(c.k)} (elevation, from inside)`,70,'#1c1c1e',700,'start');

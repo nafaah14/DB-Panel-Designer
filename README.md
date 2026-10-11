@@ -1,4 +1,4 @@
-# DB Panel Designer — v2.6.0
+# DB Panel Designer — v2.7.0
 
 Phone-first designer for **DB panels** (DIN rails, breakers, busbars, wiring) and **room electrical layouts** (switches, sockets, lights, fans) with a 3D view. Vanilla JS, works offline, data saved on the device.
 
@@ -13,7 +13,8 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 - **⚡ Circuits** — one list per room: name, MCB rating and cable size. Add, rename, re-rate, delete; each row shows how many points are on it.
 - Every point picks its circuit from that list (Edit → Circuit). Unassigned is allowed.
 - **Switching** (2.2) — a switch, switch board or fan regulator lists every light and fan in the room, one tick-list per gang, so you record what each gang actually drives. Loads are named with their position, so four identical downlights stay tellable apart.
-- **Conduit runs** (2.3) — every assigned point is routed back to the DB: a drop to a run height just under the ceiling, along the walls the shorter way round, then down into the board; ceiling points cross the ceiling in two legs first. Drawn in every wall / ceiling elevation and in 3D, with the selected point's whole circuit picked out in orange. Toggle with **Wiring**.
+- **Conduit runs** (2.3) — cables are routed along real conduit lines: a drop to a run height just under the ceiling, along the walls the shorter way round, then into the board; ceiling points cross the ceiling in two legs. Drawn in every wall / ceiling elevation and in 3D, the selected point's whole circuit picked out. Toggle with **Wiring**.
+- **Wired the way it's installed** (2.7) — the board feeds switches and sockets with a **live feed (red)**, and a switch feeds its lights and fans with **switched live (yellow)**. So a light's cable comes from its switch, not the board, and at a glance you can see which lights are switched and which are fed direct. A light left on no circuit inherits its switch's.
 - Cable per circuit and total conduit appear in the bill of materials.
 - **Linked to the panel** (2.4) — a circuit can point at a real breaker on the board, and then shows that breaker's own rating instead of typed text. **Match by label** links every circuit whose name matches a breaker label in one tap. Flags a breaker used twice, and gives an indicative warning if the cable looks undersized for the breaker (a rough check, not a sizing calculation).
 
@@ -37,6 +38,7 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 - Bill of materials with wire lengths (+15%) and rail usage, CSV export
 
 ## Changelog
+- 2.7.0 — **Wiring follows the real topology.** Cables no longer all run radially to the board: the DB feeds switches and sockets (live, red) and a switch feeds the lights and fans assigned to its gangs (switched live, yellow). A light with no circuit of its own inherits the circuit of the switch driving it; one not on any switch still gets a direct feed. Conductor colour is now meaning rather than decoration, so selecting a circuit changes line weight instead of hue, and the elevations sheet carries a key
 - 2.6.0 — v3, part 3: **multiple rooms per project**. A project holds a list of rooms (🏠 Rooms — switch, add, rename, duplicate, delete) all sharing one panel, so a circuit in any room can point at its breakers. Duplicating a room deep-copies it with fresh ids and remaps its circuit and switch→load links onto the copy. The bill of materials covers every room, prefixed by room name. Single-room projects from 2.5 and earlier are wrapped into the list on load with nothing lost
 - 2.5.0 — v3, part 2: **elevations sheet**. Menu → Elevations sheet puts all four walls and the ceiling on one page with a title block and a circuits table (MCB, cable, points, cable length), as PNG or SVG. Each surface is captured by pointing the normal drawing code at it, so the sheet always matches what the editor shows; the editor’s own surface, zoom and selection are restored afterwards
 - 2.4.0 — v3, part 1: **room circuits link to panel breakers**. A circuit can name a real MCB/RCBO/RCD on the board and then shows that device's actual rating rather than typed text; **Match by label** links everything whose circuit name matches a breaker label in one tap (fills blanks only, never double-books a breaker). Warns when two circuits share a breaker, and gives an indicative — explicitly not a calculation — warning when the cable looks undersized for the breaker rating. A breaker deleted from the panel quietly unlinks
