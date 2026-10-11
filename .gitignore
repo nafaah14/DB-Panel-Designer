@@ -1,2 +1,6 @@
 node_modules/
 .DS_Store
+
+# Wrangler's local state (the Cloudflare deploy creates these)
+.wrangler/
+.dev.vars

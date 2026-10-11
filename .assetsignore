@@ -1,0 +1,22 @@
+# What NOT to upload as site content (Cloudflare Workers static assets).
+#
+# The deploy runs `npx wrangler deploy`, which installs wrangler into
+# node_modules/ inside this repo BEFORE uploading — so without this file the
+# upload includes wrangler's own 129 MiB workerd binary and fails the 25 MiB
+# per-asset limit. node_modules is the line that matters; the rest just keeps
+# the deploy to actual site files.
+node_modules
+.git
+.gitignore
+.assetsignore
+wrangler.jsonc
+package.json
+bun.lock
+bun.lockb
+package-lock.json
+
+# Dev-only, not part of the served site
+tools
+CLAUDE.md
+HANDOVER.md
+README.md

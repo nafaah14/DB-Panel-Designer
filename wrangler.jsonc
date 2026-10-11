@@ -1,0 +1,19 @@
+{
+  // Explicit Cloudflare config so the deploy stops auto-detecting and
+  // prompting. This app has no build step: index.html and its css/js/vendor
+  // folders are served exactly as they sit in the repo, which is why the
+  // assets directory is the repo root rather than a dist/ folder.
+  //
+  // What is NOT uploaded is listed in .assetsignore — above all node_modules,
+  // which wrangler creates here for itself during the deploy and which would
+  // otherwise blow the 25 MiB per-asset limit.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "db-panel-designer",
+  "compatibility_date": "2026-10-06",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "."
+  }
+}
