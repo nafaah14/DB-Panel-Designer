@@ -41,6 +41,13 @@ Scripts are classic `<script>` tags sharing one global scope (top-level `const`/
 - 2D editor: `draw2D()`, gestures on `#r2d`, snapping in `snapPos()` (50 mm grid, standard heights `SNAP_H`, alignment with other points).
 - 3D: `build3D()` rebuilds the scene from data; `render3D()` renders on demand (`req3D()`); custom orbit (`orb`) — 1 finger rotate, 2 fingers zoom/pan; walls facing the camera are cut away; wall openings are holes in an extruded shape; item fronts use the 2D SVG as a texture (`itemTexture`). Labels are HTML chips projected each frame.
 
+### Room wiring (js/room.js, v2.1–2.3)
+- `room.circuits` = `[{id,name,mcb,cable}]`. A point names one in `props.circuit` **by id**, so renaming can't orphan it. `normRoom()` treats an unknown value as a circuit NAME and promotes it — that is how pre-2.1 free text upgrades itself.
+- Switches carry `props.controls`: one array of load ids per gang. `RDEFS.ways(props)` gives the gang count (`sw`, `swb`, `fanreg`). Never put `controls` in `RDEFS.defaults` — `Object.assign` copies an array by reference and every switch would share one; `normControls()` builds fresh arrays on create/load/edit.
+- Conduit is **constructed, not searched** (`routeTo`, `perimPath`): drop to `runH()` 150 mm under the ceiling, along the walls the shorter way round turning at corners, down into the board; ceiling points cross the ceiling in two legs first. panel.js's A* doesn't apply — it is single-plane, and these runs cross surfaces.
+- Runs are 3D room points. `runOnSurf()` projects them back for whichever surface is being drawn; `nudge()` lifts them 8 mm off the surface in 3D or they z-fight.
+- `roomRuns()` is recomputed on demand (no cache) — if it ever shows up in a profile, that is the thing to memoise.
+
 ## Conventions
 - Vanilla JS, no framework, no bundler. Keep everything working offline.
 - Phone first: touch targets ≥ 34 px, test in a 412×900 touch viewport. Pointer Events everywhere; a new primary pointer resets stale gestures.
@@ -48,5 +55,7 @@ Scripts are classic `<script>` tags sharing one global scope (top-level `const`/
 - Headless testing: Playwright + Chromium; for 3D launch with `--use-gl=swiftshader --enable-unsafe-swiftshader`.
 
 ## Roadmap
-- **v2 (next): room wiring** — circuits per point (`props.circuit` already stored), switch → light links, conduit routing along walls/ceiling to junction boxes and the DB, coloured L/N/E, cable lengths in the BOM, wires in 2D and 3D.
-- **v3:** link room circuits to panel MCB labels, multiple rooms + floor plan, printable elevations sheet.
+- **v2: room wiring — done (2.1–2.3).** See "Room wiring" above.
+- **v3 (next):** link room circuits to panel MCB labels; multiple rooms + floor plan; printable elevations sheet.
+  - Multiple rooms is the big one: `S.room` is a single object today, so it means `S.rooms[]` + a current-room id, a migration, and a room switcher. Everything in room.js reads `RM()`, so the read path is already funnelled through one accessor.
+  - Not done in v2, deliberately: conduit is radial (each point measured back to the board, not looped in), cable colours aren't split L/N/E, and junction boxes aren't used as routing waypoints.
