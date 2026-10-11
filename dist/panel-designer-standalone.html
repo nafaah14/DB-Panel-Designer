@@ -150,6 +150,10 @@ body.room:not(.r3d) #r3d{display:none}
 .swx-h{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#8a8a8f;margin-bottom:4px}
 .mbox label.swx-c{display:flex;flex-direction:row;align-items:center;gap:10px;font-size:13.5px;font-weight:500;color:#1c1c1e;margin:0;padding:7px 0;text-align:left}
 .mbox label.swx-c input{width:22px;height:22px;flex:none;padding:0;margin:0}
+.cct-br{width:100%}
+.cct-br select{width:100%}
+.cct-ro{display:inline-block;padding:10px 0;font-size:16px;font-weight:600;color:#1c1c1e;min-width:5.5em}
+.cct-warn{margin:2px 0 0;font-size:12px;font-weight:600;color:#b25000;background:#fff4e5;border-radius:8px;padding:6px 8px}
 
 </style>
 </head>
@@ -206,7 +210,7 @@ body.room:not(.r3d) #r3d{display:none}
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.3.0';
+const APP_VERSION='2.4.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -425,7 +429,13 @@ function migrate(doc){
  if(!ids.has(defs.items))defs.items=L[0].id;if(!ids.has(defs.wires))defs.wires=L[L.length-1].id;
  const items=(doc.items||[]).map(normalize).filter(Boolean);items.forEach(i=>{if(!ids.has(i.layer))i.layer=defs.items});
  const wires=(doc.wires||[]).filter(w=>w&&w.a&&w.b).map(w=>{delete w.by;if(!ids.has(w.layer))w.layer=defs.wires;if(!Array.isArray(w.path)||!w.path.length)delete w.path;return w});
- return {name:doc.name||'Untitled panel',items,wires,layers:L,defs,room:normRoom(doc.room)}}
+ const room=normRoom(doc.room);
+ /* Room circuits can point at a panel breaker by id. This is the only
+    place that sees both lists, so it is where a link to a breaker that
+    has since been deleted gets cleared. */
+ const pids=new Set(items.map(i=>i.id));
+ room.circuits.forEach(c=>{if(c.breaker&&!pids.has(c.breaker))c.breaker=''});
+ return {name:doc.name||'Untitled panel',items,wires,layers:L,defs,room}}
 const layerOf=id=>S.layers.find(l=>l.id===id)||S.layers[0];
 const isVis=o=>layerOf(o.layer).visible;
 const isLocked=o=>layerOf(o.layer).locked;
@@ -946,7 +956,7 @@ function normRoom(r){const d=defaultRoom();const o=Object.assign(d,r||{});o.wall
   const sf=def.surf==='ceil'?'ceil':(WALL_KEYS.includes(i.surf)?i.surf:'A');
   return {id:String(i.id||uid()),type:i.type,surf:sf,x:+i.x||0,y:+i.y||0,props:Object.assign({},def.defaults,i.props||{})}});
  o.circuits=(Array.isArray(o.circuits)?o.circuits:[]).filter(c=>c&&c.name)
-  .map(c=>({id:String(c.id||uid()),name:String(c.name).trim()||'Circuit',mcb:String(c.mcb||'').trim(),cable:+c.cable||1.5}));
+  .map(c=>({id:String(c.id||uid()),name:String(c.name).trim()||'Circuit',mcb:String(c.mcb||'').trim(),cable:+c.cable||1.5,breaker:String(c.breaker||'')}));
  /* props.circuit held free text before v2.1 (and still does in any older
     project or exported JSON). Anything that isn't a known circuit id is
     read as a circuit NAME: matched to an existing circuit, or promoted
@@ -983,7 +993,8 @@ const rname=it=>{const d=rdef(it);return typeof d.name==='function'?d.name(it.pr
 const CABLE_SIZES=[1,1.5,2.5,4,6,10];
 const circuits=()=>RM().circuits||[];
 const circuitById=id=>circuits().find(c=>c.id===id)||null;
-const circuitLabel=c=>c?`${c.name}${c.mcb?' · '+c.mcb:''}${c.cable?' · '+c.cable+' mm²':''}`:'—';
+const circuitLabel=c=>{if(!c)return '—';const m=circuitMcb(c);
+ return `${c.name}${m?' · '+m:''}${c.cable?' · '+c.cable+' mm²':''}`};
 const circuitItems=id=>RM().items.filter(i=>i.props.circuit===id);
 /* Sensible starting values when an old free-text name is promoted to a
    real circuit — a lighting circuit on 2.5 mm² would just be wrong. */
@@ -993,6 +1004,30 @@ function guessCable(nm){const s=nm.toUpperCase();
  if(/SKT|SOCKET|POWER|PLUG/.test(s))return 2.5;
  return 1.5}
 function guessMcb(nm){const c=guessCable(nm);return c>=4?'C20':c>=2.5?'B20':'B10'}
+
+/* ---------- circuit → panel breaker (v3) ----------
+   A circuit can point at a real device on the panel by id, so the room
+   and the board stay in step. Lookups are tolerant: a breaker deleted
+   from the panel just reads as unlinked, and migrate() clears the id on
+   next load. */
+const BREAKER_TYPES=new Set(['mcb','mcb1pn','rcbo','rcd']);
+const panelBreakers=()=>(typeof S==='object'&&S&&Array.isArray(S.items)?S.items:[]).filter(i=>BREAKER_TYPES.has(i.type));
+const breakerById=id=>id?panelBreakers().find(i=>i.id===id)||null:null;
+function breakerText(it){const p=it.props||{};
+ return it.type==='rcd'?`RCD ${p.rating}A ${p.ma}mA`:`${p.curve||''}${p.rating}`}
+function breakerLabel(it){const d=DEFS[it.type],desc=d&&d.desc?d.desc(it.props):it.type;
+ return (it.props&&it.props.label?it.props.label+' — ':'')+desc}
+/** What a circuit's MCB reads as: the linked device if there is one,
+ *  otherwise whatever was typed. */
+const circuitMcb=c=>{const b=breakerById(c.breaker);return b?breakerText(b):(c.mcb||'')};
+/* Indicative only. A rough ceiling per cable size for a quick "that
+   looks wrong" flag — it is NOT a sizing calculation and ignores
+   install method, grouping, ambient temperature and volt drop, so the
+   UI says so wherever it fires. */
+const CABLE_MAX_A={1:10,1.5:16,2.5:20,4:25,6:32,10:45};
+function cableWarn(c){const b=breakerById(c.breaker);if(!b)return '';
+ const a=+(b.props&&b.props.rating),max=CABLE_MAX_A[+c.cable];
+ return a&&max&&a>max?`${c.cable} mm² on a ${a} A breaker looks undersized — check against the install method.`:''}
 
 /* ---------- switch → load links ----------
    A switch stores props.controls: one array of item ids per gang/way.
@@ -1260,25 +1295,53 @@ function openCircuits(){
  const draw=()=>{const cs=circuits();
   /* Stacked rows rather than a table: three 16 px inputs side by side
      overflow the modal well before a 412 px phone screen. */
-  const rows=cs.map(c=>{const n=circuitItems(c.id).length;
+  const brs=panelBreakers(),dupe=new Map();
+  cs.forEach(c=>{if(c.breaker)dupe.set(c.breaker,(dupe.get(c.breaker)||0)+1)});
+  const rows=cs.map(c=>{const n=circuitItems(c.id).length,b=breakerById(c.breaker),warn=cableWarn(c);
    return `<div class="cct">
     <div class="cct-l"><input name="n_${c.id}" value="${esc(c.name)}" maxlength="24" autocomplete="off" placeholder="Circuit name">
      <button type="button" class="bb danger" data-delc="${c.id}" title="Delete circuit">✕</button></div>
-    <div class="cct-l"><label class="cct-f">MCB<input name="m_${c.id}" value="${esc(c.mcb)}" maxlength="8" autocomplete="off" placeholder="B10"></label>
+    <div class="cct-l">${b
+      ?`<label class="cct-f">MCB<span class="cct-ro">${esc(breakerText(b))}</span></label>`
+      :`<label class="cct-f">MCB<input name="m_${c.id}" value="${esc(c.mcb)}" maxlength="8" autocomplete="off" placeholder="B10"></label>`}
      <label class="cct-f">Cable mm²<select name="c_${c.id}">${CABLE_SIZES.map(s=>`<option value="${s}" ${+c.cable===s?'selected':''}>${s}</option>`).join('')}</select></label>
-     <span class="cct-n">${n} point${n===1?'':'s'}</span></div></div>`}).join('');
+     <span class="cct-n">${n} point${n===1?'':'s'}</span></div>
+    <label class="cct-f cct-br">Breaker on the panel<select name="b_${c.id}"><option value="">— not linked —</option>${
+     brs.map(x=>`<option value="${esc(x.id)}" ${x.id===c.breaker?'selected':''}>${esc(breakerLabel(x))}</option>`).join('')}</select></label>
+    ${c.breaker&&dupe.get(c.breaker)>1?`<p class="cct-warn">This breaker is also used by another circuit.</p>`:''}
+    ${warn?`<p class="cct-warn">${esc(warn)}</p>`:''}</div>`}).join('');
   openModal(`<h3>Circuits</h3><form id="ccf">
    ${rows||'<p class="muted">No circuits yet — add the first one below.</p>'}
-   <div class="mact" style="justify-content:flex-start;margin-top:10px"><button type="button" class="bb" id="cAdd">+ Add circuit</button></div>
+   <div class="mact" style="justify-content:flex-start;margin-top:10px"><button type="button" class="bb" id="cAdd">+ Add circuit</button>${
+    brs.length?`<button type="button" class="bb" id="cAuto">Match by label</button>`:''}</div>
    <p class="muted">Points are assigned to a circuit from their own Edit form. Deleting a circuit leaves its points unassigned — it never deletes them.</p>
    <div class="mact"><button type="button" class="bb" data-close>Cancel</button><button class="bb pri">Save</button></div></form>`,box=>{
    box.querySelector('#cAdd').onclick=()=>{pushUndo();RM().circuits.push({id:uid(),name:'Circuit '+(circuits().length+1),mcb:'B10',cable:1.5});save();draw()};
+   /* Panels are usually labelled with the same circuit names, so one tap
+      links the obvious ones. Only fills blanks — never moves a link the
+      user set by hand — and won't give one breaker to two circuits. */
+   const auto=box.querySelector('#cAuto');if(auto)auto.onclick=()=>{
+    const taken=new Set(circuits().map(c=>c.breaker).filter(Boolean));let n=0;
+    pushUndo();
+    for(const c of circuits()){if(c.breaker)continue;
+     const hit=panelBreakers().find(b=>!taken.has(b.id)&&String(b.props.label||'').trim().toLowerCase()===c.name.trim().toLowerCase());
+     if(hit){c.breaker=hit.id;taken.add(hit.id);n++}}
+    save();draw();toast(n?`Linked ${n} circuit${n===1?'':'s'} by label`:'No matching breaker labels')};
    box.querySelectorAll('[data-delc]').forEach(b=>b.onclick=()=>{const id=b.dataset.delc,c=circuitById(id),n=circuitItems(id).length;
     if(n&&!confirm(`Delete "${c.name}"? ${n} point${n===1?'':'s'} will be left unassigned.`))return;
     pushUndo();RM().circuits=circuits().filter(x=>x.id!==id);RM().items.forEach(i=>{if(i.props.circuit===id)i.props.circuit=''});save();draw()});
+   /* Re-render on link change so the MCB column switches between the
+      typed value and the linked breaker's own rating. */
+   box.querySelectorAll('select[name^="b_"]').forEach(s=>s.onchange=()=>{
+    const fd=new FormData(box.querySelector('#ccf'));pushUndo();
+    for(const c of circuits()){const nm=String(fd.get('n_'+c.id)??c.name).trim();
+     c.name=nm||c.name;if(fd.get('m_'+c.id)!=null)c.mcb=String(fd.get('m_'+c.id)).trim();
+     c.cable=+fd.get('c_'+c.id)||c.cable;c.breaker=String(fd.get('b_'+c.id)||'')}
+    save();draw()});
    box.querySelector('#ccf').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);pushUndo();
     for(const c of circuits()){const nm=String(fd.get('n_'+c.id)??c.name).trim();
-     c.name=nm||c.name;c.mcb=String(fd.get('m_'+c.id)??c.mcb).trim();c.cable=+fd.get('c_'+c.id)||c.cable}
+     c.name=nm||c.name;if(fd.get('m_'+c.id)!=null)c.mcb=String(fd.get('m_'+c.id)).trim();
+     c.cable=+fd.get('c_'+c.id)||c.cable;c.breaker=String(fd.get('b_'+c.id)||'')}
     closeModal();roomCommit()}})};
  draw()}
 function openRoomSettings(){const Rm=RM();

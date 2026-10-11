@@ -140,3 +140,7 @@ body.room:not(.r3d) #r3d{display:none}
 .swx-h{display:block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#8a8a8f;margin-bottom:4px}
 .mbox label.swx-c{display:flex;flex-direction:row;align-items:center;gap:10px;font-size:13.5px;font-weight:500;color:#1c1c1e;margin:0;padding:7px 0;text-align:left}
 .mbox label.swx-c input{width:22px;height:22px;flex:none;padding:0;margin:0}
+.cct-br{width:100%}
+.cct-br select{width:100%}
+.cct-ro{display:inline-block;padding:10px 0;font-size:16px;font-weight:600;color:#1c1c1e;min-width:5.5em}
+.cct-warn{margin:2px 0 0;font-size:12px;font-weight:600;color:#b25000;background:#fff4e5;border-radius:8px;padding:6px 8px}

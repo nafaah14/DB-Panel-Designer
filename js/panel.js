@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.3.0';
+const APP_VERSION='2.4.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -223,7 +223,13 @@ function migrate(doc){
  if(!ids.has(defs.items))defs.items=L[0].id;if(!ids.has(defs.wires))defs.wires=L[L.length-1].id;
  const items=(doc.items||[]).map(normalize).filter(Boolean);items.forEach(i=>{if(!ids.has(i.layer))i.layer=defs.items});
  const wires=(doc.wires||[]).filter(w=>w&&w.a&&w.b).map(w=>{delete w.by;if(!ids.has(w.layer))w.layer=defs.wires;if(!Array.isArray(w.path)||!w.path.length)delete w.path;return w});
- return {name:doc.name||'Untitled panel',items,wires,layers:L,defs,room:normRoom(doc.room)}}
+ const room=normRoom(doc.room);
+ /* Room circuits can point at a panel breaker by id. This is the only
+    place that sees both lists, so it is where a link to a breaker that
+    has since been deleted gets cleared. */
+ const pids=new Set(items.map(i=>i.id));
+ room.circuits.forEach(c=>{if(c.breaker&&!pids.has(c.breaker))c.breaker=''});
+ return {name:doc.name||'Untitled panel',items,wires,layers:L,defs,room}}
 const layerOf=id=>S.layers.find(l=>l.id===id)||S.layers[0];
 const isVis=o=>layerOf(o.layer).visible;
 const isLocked=o=>layerOf(o.layer).locked;
