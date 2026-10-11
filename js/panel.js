@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.4.0';
+const APP_VERSION='2.5.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -605,7 +605,7 @@ function openProps(id){const it=find(id);if(!it)return;const d=D(it);
 function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="projects">Projects <small>${esc(S.name)}</small></button>
  <button data-m="mode">${appMode==='room'?'Panel designer':'Room designer'} <small>switch</small></button>${appMode==='room'?'<button data-m="roomset">Room settings <small>size, wall names</small></button>':''}
- <button data-m="bom">Bill of materials <small>BOM & rail usage</small></button>
+ <button data-m="bom">Bill of materials <small>BOM & rail usage</small></button>${appMode==='room'?'<button data-m="sheet">Elevations sheet <small>all walls + ceiling, one page</small></button>':''}
  <button data-m="png">Export image <small>PNG</small></button>
  <button data-m="svg">Export drawing <small>SVG</small></button>
  <button data-m="json">Export project <small>.json</small></button>
@@ -617,7 +617,7 @@ function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="help">How to use</button>
  <button data-m="about">About <small>v${APP_VERSION}</small></button></div><div class="mact"><button class="bb" data-close>Close</button></div>`,box=>{
  box.querySelector('.mlist').onclick=e=>{const b=e.target.closest('[data-m]');if(!b)return;const m=b.dataset.m;closeModal();
-  ({projects:openProjects,mode:()=>setAppMode(appMode==='room'?'panel':'room'),roomset:()=>openRoomSettings(),bom:openBOM,png:()=>appMode==='room'?roomExport():exportPNG(),svg:()=>appMode==='room'?roomExport(true):shareOrDownload(new Blob([exportSVG().svg],{type:'image/svg+xml'}),fname()+'.svg'),json:exportJSON,import:()=>$('#fileIn').click(),
+  ({projects:openProjects,mode:()=>setAppMode(appMode==='room'?'panel':'room'),roomset:()=>openRoomSettings(),bom:openBOM,sheet:()=>roomSheet(),png:()=>appMode==='room'?roomExport():exportPNG(),svg:()=>appMode==='room'?roomExport(true):shareOrDownload(new Blob([exportSVG().svg],{type:'image/svg+xml'}),fname()+'.svg'),json:exportJSON,import:()=>$('#fileIn').click(),
    clearw:()=>{if(!S.wires.length)return toast('No wires');if(confirm('Remove all wires?')){pushUndo();S.wires=[];sel=[];commit()}},layers:()=>toggleLayers(true),
    rerouteall:()=>{if(!S.wires.some(w=>w.path))return toast('All wires are already auto-routed');pushUndo();S.wires.forEach(w=>delete w.path);commit();toast('Wires re-routed')},settings:openSettings,help:openHelp,
    about:()=>openModal(`<h3>DB Panel Designer</h3><p class="muted">Version ${APP_VERSION}<br>Panel + room designer · works offline · data stored on this device.<br>3D by three.js (MIT).</p><div class="mact"><button class="bb pri" data-close>OK</button></div>`)})[m]()}})}

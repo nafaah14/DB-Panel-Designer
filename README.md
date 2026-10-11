@@ -1,4 +1,4 @@
-# DB Panel Designer — v2.4.0
+# DB Panel Designer — v2.5.0
 
 Phone-first designer for **DB panels** (DIN rails, breakers, busbars, wiring) and **room electrical layouts** (switches, sockets, lights, fans) with a 3D view. Vanilla JS, works offline, data saved on the device.
 
@@ -24,6 +24,7 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 - Library: switches 1–4 gang, modular switch boards, fan regulator, AC isolator, 13A / 5A / 15A sockets, TV/data, wall light, exhaust fan, DB, junction boxes, downlights, LED panel, ceiling fan, pendant, smoke detector, doors and windows (cut into the wall in 3D).
 - 3D view: rotate / pinch / pan, walls toward you cut away, yellow labels (tap a label to select, again to open its wall), tap a wall to edit it.
 - Export the current wall / ceiling drawing (PNG/SVG, with heights) or the 3D view (PNG with labels). Room points appear in the bill of materials.
+- **Elevations sheet** (2.5) — Menu → Elevations sheet: all four walls and the ceiling on one page with a title block and a circuits table, as PNG or SVG.
 ### Panel designer
 - Library: MCB 1P–4P, MCB 1P+N, RCD 2P/4P, RCBO, main switch, SPD, contactor, voltage relay, kWh meter 1φ/3φ, indicator lamp
 - 35 mm DIN rails (6–48 modules) with module snapping and collision checks; enclosures
@@ -35,6 +36,7 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 - Bill of materials with wire lengths (+15%) and rail usage, CSV export
 
 ## Changelog
+- 2.5.0 — v3, part 2: **elevations sheet**. Menu → Elevations sheet puts all four walls and the ceiling on one page with a title block and a circuits table (MCB, cable, points, cable length), as PNG or SVG. Each surface is captured by pointing the normal drawing code at it, so the sheet always matches what the editor shows; the editor’s own surface, zoom and selection are restored afterwards
 - 2.4.0 — v3, part 1: **room circuits link to panel breakers**. A circuit can name a real MCB/RCBO/RCD on the board and then shows that device's actual rating rather than typed text; **Match by label** links everything whose circuit name matches a breaker label in one tap (fills blanks only, never double-books a breaker). Warns when two circuits share a breaker, and gives an indicative — explicitly not a calculation — warning when the cable looks undersized for the breaker rating. A breaker deleted from the panel quietly unlinks
 - 2.3.0 — Room wiring, part 3: **conduit routing, drawing and quantities**. Each assigned point is routed back to the DB along real conduit lines — up to a run height below the ceiling, around the walls the shorter way, down into the board — and drawn in the 2D elevations and in 3D, the selected point's circuit highlighted. New **Wiring** toggle. The BOM gains cable per circuit (+10%) and a total conduit length that counts shared runs once
 - 2.2.0 — Room wiring, part 2: **switch → load links**. Switches, switch boards and fan regulators get a tick-list of every light and fan in the room, one per gang, saved on the switch. Links survive gang-count changes (a 6M board cut to 2M keeps the first two gangs) and are cleaned up when a light is deleted

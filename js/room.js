@@ -667,6 +667,55 @@ function pick3D(cx,cy){const t=T3,r=t.renderer.domElement.getBoundingClientRect(
  if(hit.object.userData.rid){const id=hit.object.userData.rid;if(rsel===id){const it=rfind(id);setSurf(it.surf,true)}else{rsel=id;build3D();req3D();updUI()}return}
  if(hit.object.userData.wall){setSurf(hit.object.userData.wall);toast(`Editing ${surfName(hit.object.userData.wall)}`)}}
 
+/* ---------- elevations sheet: every surface on one page ----------
+   Each surface is captured by pointing draw2D() at it and taking the
+   SVG it writes, which is why this swaps `surf`/`rview` and puts them
+   back — the drawing code has no "render surface k offscreen" mode and
+   giving it one would duplicate all of draw2D. */
+function surfBlock(k){const keep={surf,allDims,rsel,rview:{...rview}};
+ surf=k;allDims=true;rsel=null;rview={x:0,y:0,k:0.5/RS};
+ let inner='';try{draw2D();inner=r2w.innerHTML}finally{
+  surf=keep.surf;allDims=keep.allDims;rsel=keep.rsel;rview=keep.rview;draw2D()}
+ return inner}
+function roomSheet(asSvg){
+ if(appMode!=='room')return toast('Switch to the room designer first');
+ const Rm=RM(),PAD=300,TOP=190,BOT=430,GAP=420,COLS=2;
+ const cells=[...WALL_KEYS.map(k=>({k,len:wallLen(k),H:Rm.h})),{k:'ceil',len:Rm.w,H:Rm.l}];
+ cells.forEach(c=>{c.bw=c.len+2*PAD;c.bh=c.H+TOP+BOT;c.svg=surfBlock(c.k)});
+ const colW=Math.max(...cells.map(c=>c.bw));
+ const rows=[];for(let i=0;i<cells.length;i+=COLS)rows.push(cells.slice(i,i+COLS));
+ const rowH=rows.map(r=>Math.max(...r.map(c=>c.bh)));
+ const HEAD=520,body=rows.reduce((a,_,i)=>a+rowH[i]+GAP,0);
+ // legend
+ const runs=roomRuns(),perC=new Map();runs.forEach(r=>perC.set(r.circuit.id,(perC.get(r.circuit.id)||0)+r.len));
+ const cs=circuits(),LEGH=cs.length?170+cs.length*105:0;
+ const W=COLS*colW+(COLS+1)*GAP,H=HEAD+body+LEGH+GAP;
+ let o=`<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>`;
+ o+=txt(GAP,250,`${Rm.name} — electrical elevations`,110,'#1c1c1e',700,'start');
+ o+=txt(GAP,370,`${(Rm.w/1000).toFixed(2)} × ${(Rm.l/1000).toFixed(2)} × ${(Rm.h/1000).toFixed(2)} m · all dimensions mm · DB Panel Designer v${APP_VERSION}`,62,'#6b7075',500,'start');
+ let y=HEAD;
+ rows.forEach((row,ri)=>{row.forEach((c,ci)=>{const x=GAP+ci*(colW+GAP);
+  o+=txt(x,y-40,c.k==='ceil'?'Ceiling (plan, looking down)':`${surfName(c.k)} (elevation, from inside)`,70,'#1c1c1e',700,'start');
+  o+=`<g transform="translate(${x+PAD},${y+TOP})" font-family="Arial,Helvetica,sans-serif">${c.svg}</g>`});
+  y+=rowH[ri]+GAP});
+ if(cs.length){o+=txt(GAP,y-40,'Circuits',70,'#1c1c1e',700,'start');
+  const cw=[760,420,420,360,460];let cx=GAP;
+  ['Circuit','MCB','Cable','Points','Cable length'].forEach((h,i)=>{o+=txt(cx,y+70,h,58,'#6b7075',700,'start');cx+=cw[i]});
+  o+=`<line x1="${GAP}" y1="${y+100}" x2="${GAP+cw.reduce((a,b)=>a+b,0)}" y2="${y+100}" stroke="#c9c3b6" stroke-width="4"/>`;
+  cs.forEach((c,i)=>{const ry=y+180+i*105;let x2=GAP;
+   const L=(perC.get(c.id)||0)/1000*1.1;
+   [c.name,circuitMcb(c)||'—',c.cable+' mm²',String(circuitItems(c.id).length),L?L.toFixed(2)+' m':'—']
+    .forEach((v,j)=>{o+=txt(x2,ry,v,62,'#1c1c1e',j?500:700,'start');x2+=cw[j]})})}
+ const nm=`${fname()}-${(Rm.name||'room').replace(/[^\w\- ]+/g,'').replace(/\s+/g,'-')}-elevations`;
+ const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(W/4)}" height="${Math.round(H/4)}" viewBox="0 0 ${W} ${H}"><g font-family="Arial,Helvetica,sans-serif">${o}</g></svg>`;
+ if(asSvg)return shareOrDownload(new Blob([svg],{type:'image/svg+xml'}),nm+'.svg');
+ const img=new Image();
+ img.onload=()=>{const sc=Math.min(2,6000/(W/4)),c=document.createElement('canvas');c.width=Math.round(W/4*sc);c.height=Math.round(H/4*sc);
+  const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(img,0,0,c.width,c.height);
+  c.toBlob(b=>b?shareOrDownload(b,nm+'.png'):toast('Export failed'),'image/png')};
+ img.onerror=()=>toast('Sheet export failed');
+ img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg)}
+
 /* ---------- export: current wall / ceiling drawing, or the 3D view ---------- */
 function roomExport(asSvg){const nm=`${fname()}-${(RM().name||'room').replace(/[^\w\- ]+/g,'').replace(/\s+/g,'-')}`;
  if(surf==='3d'){if(!T3)return toast('3D view not ready');render3D();const src=T3.renderer.domElement,c=document.createElement('canvas');c.width=src.width;c.height=src.height;const g=c.getContext('2d');g.drawImage(src,0,0);
