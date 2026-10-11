@@ -1,0 +1,10 @@
+{
+  "name": "db-panel-designer",
+  "version": "2.0.0",
+  "private": true,
+  "description": "DB panel + room electrical point designer (vanilla JS, Three.js r149 for 3D)",
+  "scripts": {
+    "build": "node tools/build-standalone.mjs",
+    "serve": "npx --yes serve -l 5173 ."
+  }
+}

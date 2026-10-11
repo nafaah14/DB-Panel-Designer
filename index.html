@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>DB Panel Designer</title>
+<meta name="theme-color" content="#1c1c1e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body class="sheet-open">
+<!-- Panel designer canvas -->
+<svg id="cv" xmlns="http://www.w3.org/2000/svg"><g id="world" font-family="Arial,Helvetica,sans-serif"></g></svg>
+<!-- Room designer: 2D wall / ceiling editor -->
+<svg id="r2d" xmlns="http://www.w3.org/2000/svg"><g id="r2w" font-family="Arial,Helvetica,sans-serif"></g></svg>
+<!-- Room designer: 3D view -->
+<div id="r3d"><div id="r3dLbl"></div><div id="r3dMsg" class="hidden"></div></div>
+
+<div id="bars">
+ <div class="toprow"><div class="seg" id="modeSw"><button data-mode="panel">Panel</button><button data-mode="room">Room</button></div><button id="titleChip">Panel</button></div>
+ <div id="roomTabs" class="rt"></div>
+ <div id="wirebar" class="bar hidden"></div>
+ <div id="selbar" class="bar hidden"></div>
+</div>
+
+<div class="fabs">
+ <button class="fab light" id="bMenu" title="Menu"></button>
+ <button class="fab" id="bShare" title="Export image"></button>
+ <button class="fab" id="bUndo" title="Undo"></button>
+ <button class="fab" id="bRedo" title="Redo"></button>
+ <button class="fab" id="bWire" title="Wire mode (W)"></button>
+ <button class="fab" id="bLayers" title="Layers (L)"></button>
+ <button class="fab" id="bFit" title="Fit to screen"></button>
+ <button class="fab" id="bAdd" title="Components"></button>
+</div>
+
+<div id="sheet">
+ <div class="grip" id="grip"><i></i></div>
+ <div class="tabs" id="tabs"></div>
+ <div class="lib" id="lib"></div>
+</div>
+
+<div id="layers" class="hidden"></div>
+<div id="modal" class="hidden"><div class="mbox"></div></div>
+<div id="toast"></div>
+<input type="file" id="fileIn" accept=".json,application/json" class="hidden">
+
+<script src="vendor/three.min.js"></script>
+<script src="js/panel.js"></script>
+<script src="js/room.js"></script>
+</body>
+</html>
