@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.9.0';
+const APP_VERSION='2.10.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -249,7 +249,13 @@ function migratePanel(p,i){
  if(!ids.has(defs.items))defs.items=L[0].id;if(!ids.has(defs.wires))defs.wires=L[L.length-1].id;
  const items=(p.items||[]).map(normalize).filter(Boolean);items.forEach(it=>{if(!ids.has(it.layer))it.layer=defs.items});
  const wires=(p.wires||[]).filter(w=>w&&w.a&&w.b).map(w=>{delete w.by;if(!ids.has(w.layer))w.layer=defs.wires;if(!Array.isArray(w.path)||!w.path.length)delete w.path;return w});
- return {id:String(p.id||uid()),name:String(p.name||`Panel ${i+1}`).trim()||`Panel ${i+1}`,items,wires,layers:L,defs}}
+ /* Circuits belong to the panel they originate from, not to a room — a
+    circuit IS a breaker's outgoing way. A room reads the circuits of
+    whichever board its DB points at, so there is one owner and nothing
+    to keep in sync. */
+ const circuits=(Array.isArray(p.circuits)?p.circuits:[]).filter(c=>c&&c.name)
+  .map(c=>({id:String(c.id||uid()),name:String(c.name).trim()||'Circuit',mcb:String(c.mcb||'').trim(),cable:+c.cable||1.5,breaker:String(c.breaker||'')}));
+ return {id:String(p.id||uid()),name:String(p.name||`Panel ${i+1}`).trim()||`Panel ${i+1}`,items,wires,layers:L,defs,circuits}}
 /**
  * S.items / S.wires / S.layers / S.defs are accessors onto the CURRENT
  * panel, not copies. Seven places in this file reassign them outright
@@ -265,6 +271,33 @@ function bindPanelViews(o){
   set(v){const p=curPanel.call(null);if(p)p[k]=v},
   enumerable:false,configurable:true}));
  return o}
+/**
+ * Pre-2.1 projects put free text in a point's props.circuit ("LIGHT 1")
+ * rather than a circuit id. Anything that matches no known circuit is
+ * read as a NAME and matched or promoted onto the board that room
+ * feeds from, so an old project keeps what it had.
+ *
+ * This has to run where BOTH lists are visible. It used to live in
+ * normRoom(), which since circuits moved onto the panel can no longer
+ * tell an id from a name — and so minted a junk circuit named after
+ * the id for every point, on every single load.
+ */
+function linkLegacyCircuits(panels,rooms){
+ if(!panels.length)return;
+ const known=new Set(panels.flatMap(p=>(p.circuits||[]).map(c=>c.id)));
+ for(const r of rooms){
+  const db=r.items.find(i=>i.type==='db'&&i.props.panel&&panels.some(p=>p.id===i.props.panel));
+  const target=db?panels.find(p=>p.id===db.props.panel):panels[0];
+  for(const i of r.items){const v=i.props.circuit;
+   if(!v||known.has(v))continue;
+   const nm=String(v).trim();if(!nm){i.props.circuit='';continue}
+   let c=target.circuits.find(x=>x.name.toLowerCase()===nm.toLowerCase());
+   if(!c){c={id:uid(),name:nm,mcb:guessMcb(nm),cable:guessCable(nm),breaker:''};target.circuits.push(c);known.add(c.id)}
+   i.props.circuit=c.id}
+  /* A DB with no board chosen defaults to the one its room's circuits
+     came from, so an upgraded or demo project opens already linked
+     rather than needing the link set by hand before anything routes. */
+  if(target)r.items.forEach(i=>{if(i.type==='db'&&!i.props.panel)i.props.panel=target.id})}}
 function migrate(doc){
  /* Panels: `panels` since 2.9. Before that the document WAS the panel,
     so an old doc is wrapped as the first one and opens unchanged. */
@@ -277,11 +310,29 @@ function migrate(doc){
  const rooms=(Array.isArray(doc.rooms)&&doc.rooms.length?doc.rooms:[doc.room]).map(normRoom);
  const rids=new Set(rooms.map(r=>r.id));
  const roomId=rids.has(doc.roomId)?doc.roomId:rooms[0].id;
+ /* Circuits lived on the room until 2.10. Move them onto a board, ids
+    intact so every point still resolves, and point that room's DB at
+    it — so an upgraded project comes back already wired up rather than
+    with an empty circuit list. Target: the panel that room's DB already
+    names, else the first panel. */
+ rooms.forEach(r=>{
+  if(!Array.isArray(r.circuits)||!r.circuits.length)return;
+  const db=r.items.find(i=>i.type==='db'&&i.props.panel&&panels.some(p=>p.id===i.props.panel));
+  const target=db?panels.find(p=>p.id===db.props.panel):panels[0];
+  if(!target)return;
+  const have=new Set(target.circuits.map(c=>c.id));
+  r.circuits.forEach(c=>{if(!have.has(c.id))target.circuits.push(c)});
+  r.items.forEach(i=>{if(i.type==='db'&&!i.props.panel)i.props.panel=target.id});
+  r.circuits=[]});
+ linkLegacyCircuits(panels,rooms);
  /* Room circuits can point at a breaker on any panel. This is the only
     place that sees every panel and every room, so it is where a link to
-    a breaker that has since been deleted gets cleared. */
+    a breaker, or a DB's link to a panel, that has since been deleted
+    gets cleared. */
  const pids=new Set(panels.flatMap(p=>p.items.map(i=>i.id)));
- rooms.forEach(r=>r.circuits.forEach(c=>{if(c.breaker&&!pids.has(c.breaker))c.breaker=''}));
+ const paids=new Set(panels.map(p=>p.id));
+ panels.forEach(p=>p.circuits.forEach(c=>{if(c.breaker&&!pids.has(c.breaker))c.breaker=''}));
+ rooms.forEach(r=>r.items.forEach(i=>{if(i.type==='db'&&i.props.panel&&!paids.has(i.props.panel))i.props.panel=''}));
  return bindPanelViews({name:doc.name||'Untitled panel',panels,panelId,rooms,roomId})}
 const layerOf=id=>S.layers.find(l=>l.id===id)||S.layers[0];
 const isVis=o=>layerOf(o.layer).visible;
@@ -669,6 +720,7 @@ function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="projects">Projects <small>${esc(S.name)}</small></button>
  <button data-m="mode">${appMode==='room'?'Panel designer':'Room designer'} <small>switch</small></button>${appMode==='room'?'<button data-m="roomset">Room settings <small>size, wall names</small></button>':''}
  <button data-m="panels">Panels <small>${S.panels.length>1?esc(curPanel().name)+' · '+S.panels.length:'add, switch, duplicate'}</small></button>
+ <button data-m="cct">Circuits <small>${curPanel().circuits.length} on this panel</small></button>
  <button data-m="bom">Bill of materials <small>BOM & rail usage</small></button>${appMode==='room'?'<button data-m="sheet">Elevations sheet <small>all walls + ceiling, one page</small></button>':'<button data-m="encl">Panel size &amp; fit <small>enclosure, does it fit</small></button>'}
  <button data-m="png">Export image <small>PNG</small></button>
  <button data-m="svg">Export drawing <small>SVG</small></button>
@@ -681,7 +733,7 @@ function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="help">How to use</button>
  <button data-m="about">About <small>v${APP_VERSION}</small></button></div><div class="mact"><button class="bb" data-close>Close</button></div>`,box=>{
  box.querySelector('.mlist').onclick=e=>{const b=e.target.closest('[data-m]');if(!b)return;const m=b.dataset.m;closeModal();
-  ({projects:openProjects,mode:()=>setAppMode(appMode==='room'?'panel':'room'),roomset:()=>openRoomSettings(),bom:openBOM,sheet:()=>roomSheet(),encl:openEncl,panels:openPanels,png:()=>appMode==='room'?roomExport():exportPNG(),svg:()=>appMode==='room'?roomExport(true):shareOrDownload(new Blob([exportSVG().svg],{type:'image/svg+xml'}),fname()+'.svg'),json:exportJSON,import:()=>$('#fileIn').click(),
+  ({projects:openProjects,mode:()=>setAppMode(appMode==='room'?'panel':'room'),roomset:()=>openRoomSettings(),bom:openBOM,sheet:()=>roomSheet(),encl:openEncl,panels:openPanels,cct:openCircuits,png:()=>appMode==='room'?roomExport():exportPNG(),svg:()=>appMode==='room'?roomExport(true):shareOrDownload(new Blob([exportSVG().svg],{type:'image/svg+xml'}),fname()+'.svg'),json:exportJSON,import:()=>$('#fileIn').click(),
    clearw:()=>{if(!S.wires.length)return toast('No wires');if(confirm('Remove all wires?')){pushUndo();S.wires=[];sel=[];commit()}},layers:()=>toggleLayers(true),
    rerouteall:()=>{if(!S.wires.some(w=>w.path))return toast('All wires are already auto-routed');pushUndo();S.wires.forEach(w=>delete w.path);commit();toast('Wires re-routed')},settings:openSettings,help:openHelp,
    about:()=>openModal(`<h3>DB Panel Designer</h3><p class="muted">Version ${APP_VERSION}<br>Panel + room designer · works offline · data stored on this device.<br>3D by three.js (MIT).</p><div class="mact"><button class="bb pri" data-close>OK</button></div>`)})[m]()}})}

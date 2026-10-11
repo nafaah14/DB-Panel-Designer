@@ -1,4 +1,4 @@
-# DB Panel Designer — v2.9.0
+# DB Panel Designer — v2.10.0
 
 Phone-first designer for **DB panels** (DIN rails, breakers, busbars, wiring) and **room electrical layouts** (switches, sockets, lights, fans) with a 3D view. Vanilla JS, works offline, data saved on the device.
 
@@ -10,7 +10,8 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 
 ## Features
 ### Room wiring (new in 2.1)
-- **⚡ Circuits** — one list per room: name, MCB rating and cable size. Add, rename, re-rate, delete; each row shows how many points are on it.
+- **A room's DB is a panel** (2.10) — link a DB to one of the project's boards (DB → Edit → Panel) and it becomes that board: you design it in the panel editor, and its circuits are the ones the room can use. Put two DBs in a room on two different boards and each point runs back to the one that actually feeds it.
+- **⚡ Circuits** — name, MCB rating and cable size. Circuits belong to the **board they come from**, so the same list appears in the panel editor and in every room fed by that board — created in one place, available in the other, with nothing to keep in sync.
 - Every point picks its circuit from that list (Edit → Circuit). Unassigned is allowed.
 - **Switching** (2.2) — a switch, switch board or fan regulator lists every light and fan in the room, one tick-list per gang, so you record what each gang actually drives. Loads are named with their position, so four identical downlights stay tellable apart.
 - **Conduit runs** (2.3) — cables are routed along real conduit lines: a drop to a run height just under the ceiling, along the walls the shorter way round, then into the board; ceiling points cross the ceiling in two legs. Drawn in every wall / ceiling elevation and in 3D, the selected point's whole circuit picked out. Toggle with **Wiring**.
@@ -40,6 +41,7 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 - Bill of materials with wire lengths (+15%) and rail usage, CSV export
 
 ## Changelog
+- 2.10.0 — **A room's DB is a real panel.** Link a DB to one of the project's boards and it *is* that board — designed in the panel editor, and its circuits become the ones the room can use. Circuits moved from the room onto the panel that owns them, so there is one list shared by the panel editor and every room that board feeds, rather than two copies kept in step. With two DBs on two boards, each point routes back to the one that feeds it. Projects upgrade on load: circuits move onto the board, ids intact, and each room's DB is linked to it automatically
 - 2.9.0 — **Multiple panels per project.** A project holds a list of boards, each with its own devices, wires and layers (Menu → Panels: add, switch, rename, duplicate, delete). Duplicating one re-ids every device and re-points all its wiring and rail references at the copy. Room circuits can now name a breaker on *any* panel, labelled with which board it is on. Projects from 2.8 and earlier — where the document itself was the panel — are wrapped into the list on load, unchanged
 - 2.8.0 — **Panel size and a fit check.** The enclosure takes a custom W×H as well as presets, and the preset list now includes typical consumer-unit sizes by way count (4–24), worked from DIN module geometry. Menu → Panel size & fit reports whether the design fits the box, naming each part outside the usable area and by how much, with rail modules used vs free. Way-count sizes are a starting point to check a real enclosure against, not a manufacturer's spec
 - 2.7.0 — **Wiring follows the real topology.** Cables no longer all run radially to the board: the DB feeds switches and sockets (live, red) and a switch feeds the lights and fans assigned to its gangs (switched live, yellow). A light with no circuit of its own inherits the circuit of the switch driving it; one not on any switch still gets a direct feed. Conductor colour is now meaning rather than decoration, so selecting a circuit changes line weight instead of hue, and the elevations sheet carries a key

@@ -43,7 +43,9 @@ Scripts are classic `<script>` tags sharing one global scope (top-level `const`/
 - 3D: `build3D()` rebuilds the scene from data; `render3D()` renders on demand (`req3D()`); custom orbit (`orb`) — 1 finger rotate, 2 fingers zoom/pan; walls facing the camera are cut away; wall openings are holes in an extruded shape; item fronts use the 2D SVG as a texture (`itemTexture`). Labels are HTML chips projected each frame.
 
 ### Room wiring (js/room.js, v2.1–2.3)
-- `room.circuits` = `[{id,name,mcb,cable}]`. A point names one in `props.circuit` **by id**, so renaming can't orphan it. `normRoom()` treats an unknown value as a circuit NAME and promotes it — that is how pre-2.1 free text upgrades itself.
+- **Circuits live on the PANEL** (`panel.circuits`), not the room — a circuit is a breaker's outgoing way. A room reads the circuits of the boards its DBs point at (`roomPanels()` → `circuits()`); one owner, so nothing is synced. A point names one in `props.circuit` **by id**, so renaming can't orphan it.
+- A `db` item's `props.panel` is the board it *is*. `dbForCircuit()` routes each point to the DB whose panel owns its circuit, so two DBs in a room work.
+- Promoting pre-2.1 free-text circuit names happens in `linkLegacyCircuits()` (panel.js), **not** `normRoom()` — normRoom can't tell an id from a name now that circuits are elsewhere, and doing it there minted a junk circuit per point on every load.
 - Switches carry `props.controls`: one array of load ids per gang. `RDEFS.ways(props)` gives the gang count (`sw`, `swb`, `fanreg`). Never put `controls` in `RDEFS.defaults` — `Object.assign` copies an array by reference and every switch would share one; `normControls()` builds fresh arrays on create/load/edit.
 - Conduit is **constructed, not searched** (`routeBetween`, `perimPath`): drop to `runH()` 150 mm under the ceiling, along the walls the shorter way round turning at corners, then to the far point; ceiling↔wall crossings go via the ceiling edge. panel.js's A* doesn't apply — it is single-plane, and these runs cross surfaces.
 - **Topology (2.7):** `roomRuns()` walks items, not circuits. DB→switch and DB→socket are `kind:'feed'` (red); switch→light/fan is `kind:'switched'` (yellow), sourced from `switchesFor()`. A load on no switch falls back to a direct feed. `effCircuit()` lets a load with a blank circuit inherit its switch's — an explicit choice always wins.
@@ -63,9 +65,8 @@ A **service worker from another localhost project** (Daybook, cache `daybook-she
 ## Roadmap
 - **v2: room wiring — done (2.1–2.3).** See "Room wiring" above.
 - **v3 — done bar the floor plan:** panel-breaker links (2.4), elevations sheet (2.5), multiple rooms (2.6).
-- **Done since:** real wiring topology (2.7), panel size + fit check (2.8), multiple panels (2.9).
-- **Next: bind a room's DB to a panel** — `db` items get `props.panel`; circuits move from the room onto the panel that owns them (agreed: the panel is the single owner, no two-way sync), so a room shows the circuits of whichever board its DB points at. `roomsUsingPanel()` and the `props.panel` clean-up in `openPanels()` are already in place for it.
-- **Then: the floor plan.** Rooms exist as a list but have no position relative to each other, which is what a floor plan needs — at minimum an x/y offset and a rotation per room, then a plan view that draws them together. Worth settling first: do adjacent rooms share a wall, or does each keep its own four?
+- **Done since:** real wiring topology (2.7), panel size + fit check (2.8), multiple panels (2.9), room DB ↔ panel with circuits owned by the panel (2.10).
+- **Next: the floor plan.** Rooms exist as a list but have no position relative to each other, which is what a floor plan needs — at minimum an x/y offset and a rotation per room, then a plan view that draws them together. Worth settling first: do adjacent rooms share a wall, or does each keep its own four?
 - Still not done, deliberately: conduit is radial (each point measured back to the board, not looped in), cable colours aren't split L/N/E, and junction boxes aren't used as routing waypoints.
 
 ### Rooms (2.6)
