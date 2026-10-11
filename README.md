@@ -1,4 +1,4 @@
-# DB Panel Designer — v2.2.0
+# DB Panel Designer — v2.3.0
 
 Phone-first designer for **DB panels** (DIN rails, breakers, busbars, wiring) and **room electrical layouts** (switches, sockets, lights, fans) with a 3D view. Vanilla JS, works offline, data saved on the device.
 
@@ -13,6 +13,8 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 - **⚡ Circuits** — one list per room: name, MCB rating and cable size. Add, rename, re-rate, delete; each row shows how many points are on it.
 - Every point picks its circuit from that list (Edit → Circuit). Unassigned is allowed.
 - **Switching** (2.2) — a switch, switch board or fan regulator lists every light and fan in the room, one tick-list per gang, so you record what each gang actually drives. Loads are named with their position, so four identical downlights stay tellable apart.
+- **Conduit runs** (2.3) — every assigned point is routed back to the DB: a drop to a run height just under the ceiling, along the walls the shorter way round, then down into the board; ceiling points cross the ceiling in two legs first. Drawn in every wall / ceiling elevation and in 3D, with the selected point's whole circuit picked out in orange. Toggle with **Wiring**.
+- Cable per circuit and total conduit appear in the bill of materials.
 
 ### Room designer (new in 2.0)
 - Switch **Panel / Room** at the top. Room = 4 walls + ceiling, size and wall names in ⚙ Room.
@@ -32,6 +34,7 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 - Bill of materials with wire lengths (+15%) and rail usage, CSV export
 
 ## Changelog
+- 2.3.0 — Room wiring, part 3: **conduit routing, drawing and quantities**. Each assigned point is routed back to the DB along real conduit lines — up to a run height below the ceiling, around the walls the shorter way, down into the board — and drawn in the 2D elevations and in 3D, the selected point's circuit highlighted. New **Wiring** toggle. The BOM gains cable per circuit (+10%) and a total conduit length that counts shared runs once
 - 2.2.0 — Room wiring, part 2: **switch → load links**. Switches, switch boards and fan regulators get a tick-list of every light and fan in the room, one per gang, saved on the switch. Links survive gang-count changes (a 6M board cut to 2M keeps the first two gangs) and are cleaned up when a light is deleted
 - 2.1.0 — Room wiring, part 1: a **Circuits** list per room (name, MCB, cable size) via ⚡ Circuits, and a circuit picker on every point in place of the old free-text field. Points reference a circuit by id, so renaming one never orphans them; deleting one leaves its points unassigned rather than deleting them. Projects from 2.0 upgrade automatically — existing free-text circuit names become real circuits, with the MCB and cable size guessed from the name (lighting 1.5 mm², sockets 2.5 mm², A/C 4 mm²)
 - 2.0.0 — Room designer v1 (wall & ceiling editors, 3D view with Three.js r149); project split into index.html / css / js / vendor for VS Code; standalone build script; CLAUDE.md

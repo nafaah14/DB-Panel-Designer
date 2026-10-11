@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.2.0';
+const APP_VERSION='2.3.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -686,7 +686,7 @@ function openBOM(){const m=new Map();for(const it of S.items){const d=D(it);if(!
  rows.push(...roomBOMRows());
  const csv=[['Item','Qty','Unit']].concat(rows).map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
  openModal(`<h3>Bill of materials</h3><table class="bom"><tr><th>Item</th><th class="n">Qty</th><th></th></tr>${rows.map(r=>`<tr><td>${esc(r[0])}</td><td class="n">${r[1]}</td><td>${r[2]}</td></tr>`).join('')||'<tr><td colspan="3" class="muted">No components yet</td></tr>'}</table>
- <p class="muted">Includes the panel and the room points. Wire lengths are measured from the panel drawing (1 module = 18 mm) plus 15% allowance.</p>${rails?`<h3 style="margin-top:14px">Rail usage</h3><table class="bom">${rails}</table>`:''}
+ <p class="muted">Includes the panel and the room points. Panel wire lengths are measured from the panel drawing (1 module = 18 mm) plus 15% allowance. Room cable is each point measured back to the DB along the conduit route (radial, not looped-in) plus 10% — a loop-in install will come out shorter.</p>${rails?`<h3 style="margin-top:14px">Rail usage</h3><table class="bom">${rails}</table>`:''}
  <div class="mact"><button class="bb" id="bCopy">Copy CSV</button><button class="bb" id="bCsv">Download CSV</button><button class="bb pri" data-close>Close</button></div>`,box=>{
  box.querySelector('#bCopy').onclick=async()=>{try{await navigator.clipboard.writeText(csv);toast('BOM copied')}catch(_){toast('Copy not available here')}};
  box.querySelector('#bCsv').onclick=()=>shareOrDownload(new Blob([csv],{type:'text/csv'}),fname()+'-BOM.csv')})}

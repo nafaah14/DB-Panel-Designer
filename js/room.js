@@ -98,6 +98,86 @@ function normControls(v,n){const out=[];for(let i=0;i<n;i++)out.push((Array.isAr
 function switchesFor(id){const out=[];for(const s of RM().items){const n=waysOf(s);if(!n)continue;
  const c=normControls(s.props.controls,n);c.forEach((row,i)=>{if(row.includes(id))out.push({sw:s,way:i})})}return out}
 
+/* =========================================================
+   Conduit routing (room wiring v2)
+   ---------------------------------------------------------
+   Cables are built as polylines of 3D room points (mm), then projected
+   back onto whichever surface is being drawn. 3D rather than per-surface
+   2D because a run from a ceiling downlight to a wall DB crosses
+   surfaces, which a single-plane router can't express — so panel.js's
+   grid A* doesn't port over here.
+
+   No grid search either: conduit follows a handful of natural lines, so
+   the path is constructed rather than searched — a drop to the run
+   height, along the walls at that height (the shorter way round), and a
+   drop to the board. That is both what gets installed and far cheaper
+   than A* over a 3D surface graph.
+   ========================================================= */
+const RUN_DROP=150;                                   // run sits this far below the ceiling
+const runH=()=>Math.max(100,RM().h-RUN_DROP);
+const wallOff=k=>({A:0,B:RM().w,C:RM().w+RM().l,D:2*RM().w+RM().l})[k];
+const perim=()=>2*(RM().w+RM().l);
+/** Surface point on wall k -> 3D room point. */
+function wallPt(k,x,y){const W=wallGeo(k);return [W.o[0]+W.d[0]*x,y,W.o[2]+W.d[2]*x]}
+const ceilPt=(x,z)=>[x,RM().h,z];
+/** Perimeter distance -> 3D point at height hh. */
+function sToPt(s,hh){const P=perim(),sm=((s%P)+P)%P;
+ for(const k of WALL_KEYS){const o=wallOff(k),len=wallLen(k);if(sm>=o-1e-6&&sm<=o+len+1e-6)return wallPt(k,clamp(sm-o,0,len),hh)}
+ return wallPt('A',0,hh)}
+/** Along the walls at height hh, from one wall position to another,
+ *  going whichever way round is shorter and turning at each corner. */
+function perimPath(k1,x1,k2,x2,hh){
+ const P=perim(),s1=wallOff(k1)+x1,s2=wallOff(k2)+x2;
+ const fwd=((s2-s1)%P+P)%P,back=P-fwd,dir=fwd<=back?1:-1,span=Math.min(fwd,back);
+ const hits=[];
+ for(const k of WALL_KEYS){const c=wallOff(k)+wallLen(k);
+  const d=dir>0?((c-s1)%P+P)%P:((s1-c)%P+P)%P;
+  if(d>1e-6&&d<span-1e-6)hits.push({d,s:c})}
+ hits.sort((a,b)=>a.d-b.d);
+ return [sToPt(s1,hh),...hits.map(h=>sToPt(h.s,hh)),sToPt(s2,hh)]}
+const seg3=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
+/** One point's run back to the board, as 3D points. */
+function routeTo(it,db){
+ const Rm=RM(),hh=runH(),out=[];
+ const push=p=>{const l=out[out.length-1];if(!l||seg3(l,p)>1)out.push(p)};
+ const dbTop=clamp(db.y+ih(db)/2,0,Rm.h);
+ if(it.surf==='ceil'){
+  const T=wallPt(db.surf,db.x,Rm.h);                 // ceiling edge above the board
+  push(ceilPt(it.x,it.y));push(ceilPt(T[0],it.y));push(ceilPt(T[0],T[2]));
+ }else{
+  push(wallPt(it.surf,it.x,it.y));                   // the point itself
+  push(wallPt(it.surf,it.x,hh));                     // up (or down) to the run
+  perimPath(it.surf,it.x,db.surf,db.x,hh).forEach(push);
+ }
+ push(wallPt(db.surf,db.x,dbTop));                   // down into the board
+ return out}
+const routeLen=P=>{let L=0;for(let i=1;i<P.length;i++)L+=seg3(P[i-1],P[i]);return L};
+/** Every cable in the room: one run per assigned point back to the DB.
+ *  Radial (each point measured to the board) rather than looped-in —
+ *  stated in the BOM, since it reads longer than a real loop-in install. */
+function roomRuns(){const Rm=RM();if(!Rm)return [];
+ const db=Rm.items.find(i=>i.type==='db'&&i.surf!=='ceil');if(!db)return [];
+ const out=[];
+ for(const c of circuits()){for(const it of circuitItems(c.id)){if(it.id===db.id)continue;
+  const pts=routeTo(it,db);if(pts.length<2)continue;
+  out.push({circuit:c,item:it,pts,len:routeLen(pts)})}}
+ return out}
+/* --- projecting a 3D run back onto the surface being drawn --- */
+function onWall(k,P){const W=wallGeo(k);const dx=P[0]-W.o[0],dz=P[2]-W.o[2];
+ const perp=dx*W.n[0]+dz*W.n[2],sx=dx*W.d[0]+dz*W.d[2];
+ return Math.abs(perp)<2&&sx>=-2&&sx<=wallLen(k)+2?{x:sx,y:P[1]}:null}
+const onCeil=P=>Math.abs(P[1]-RM().h)<2?{x:P[0],y:P[2]}:null;
+/** Lift a run point just off its surface, into the room — drawn exactly
+ *  on the plane it z-fights with the wall or ceiling it follows. */
+function nudge(P){const Rm=RM();
+ if(Math.abs(P[1]-Rm.h)<2)return [P[0],P[1]-8,P[2]];
+ for(const k of WALL_KEYS){if(onWall(k,P)){const n=wallGeo(k).n;return [P[0]+n[0]*8,P[1],P[2]+n[2]*8]}}
+ return P}
+/** The parts of a run that lie on surface k, as surface-space polylines. */
+function runOnSurf(pts,k){const f=k==='ceil'?onCeil:P=>onWall(k,P);const segs=[];let cur=[];
+ for(const P of pts){const q=f(P);if(q)cur.push(q);else{if(cur.length>1)segs.push(cur);cur=[]}}
+ if(cur.length>1)segs.push(cur);return segs}
+
 /* ---------- symbols (SVG in mm, origin = item top-left, size w×h) ---------- */
 const plate=(w,h,fill='#fbfbf8')=>`<rect x="1.5" y="1.5" width="${w-3}" height="${h-3}" rx="6" fill="${fill}" stroke="#8d969c" stroke-width="2.5"/>`;
 const rocker=(cx,cy,rw,rh)=>`<rect x="${cx-rw/2}" y="${cy-rh/2}" width="${rw}" height="${rh}" rx="3" fill="#f3f3ef" stroke="#9aa1a6" stroke-width="1.6"/><rect x="${cx-rw/2+3}" y="${cy-rh/2+3}" width="${rw-6}" height="${rh/2-3}" rx="2" fill="#dfe1dd"/>`;
@@ -189,6 +269,7 @@ function roomUpdUI(){const Rm=RM(),tabs=$('#roomTabs');
  tabs.innerHTML=tb('3d','3D')+WALL_KEYS.map(k=>tb(k,'Wall '+k,Rm.walls[k])).join('')+tb('ceil','Ceiling')+
   (surf==='3d'?`<span class="rtsep"></span><button class="rtb" data-r3="reset">Reset view</button><button class="rtb ${settings.r3labels!==false?'on2':''}" data-r3="labels">Labels</button><button class="rtb ${settings.r3cut!==false?'on2':''}" data-r3="cut">Cutaway</button>`
    :`<span class="rtsep"></span><button class="rtb ${allDims?'on2':''}" data-r2="dims">All heights</button>`)+
+  `<button class="rtb ${settings.rwire!==false?'on2':''}" data-r3="wire">Wiring</button>`+
   `<button class="rtb" data-r3="cct">⚡ Circuits</button><button class="rtb" data-r3="room">⚙ Room</button>`;
  const it=rsel&&rfind(rsel),sb=$('#selbar');
  if(it){const isW=it.surf!=='ceil',pos=isW?`${Math.round(it.x)} from left · h ${Math.round(it.y)}`:`${Math.round(it.x)} from ${Rm.walls.D?'W':'D'} · ${Math.round(it.y)} from ${Rm.walls.A?'N':'A'}`;
@@ -203,6 +284,7 @@ $('#roomTabs').addEventListener('click',e=>{const b=e.target.closest('button');i
  else if(a==='labels'){settings.r3labels=settings.r3labels===false;saveSettings();updUI();req3D()}
  else if(a==='cut'){settings.r3cut=settings.r3cut===false;saveSettings();updUI();req3D()}
  else if(a==='dims'){allDims=!allDims;draw2D();updUI()}
+ else if(a==='wire'){settings.rwire=settings.rwire===false;saveSettings();updUI();if(surf==='3d'){build3D();req3D()}else draw2D()}
  else if(a==='cct')openCircuits();
  else if(a==='room')openRoomSettings()});
 $('#selbar').addEventListener('click',e=>{if(appMode!=='room')return;const b=e.target.closest('[data-ra]');if(!b)return;const a=b.dataset.ra,it=rfind(rsel);if(!it)return;
@@ -302,8 +384,23 @@ function roomKey(e,k,c){
  if(k==='w'||k==='l')return true;
  if(!c&&k.length===1&&'012345'.includes(k)){setSurf(['3d','A','B','C','D','ceil'][+k]);return true}
  return false}
+/** Conduit, counting a length of trunking shared by several circuits
+ *  once. Runs out of the same wall share identical corner-to-corner
+ *  segments, so exact de-duplication catches most of the sharing;
+ *  partial overlaps still count twice. */
+function conduitLen(){const seen=new Set();let L=0;
+ for(const r of roomRuns())for(let i=1;i<r.pts.length;i++){
+  const a=r.pts[i-1].map(Math.round),b=r.pts[i].map(Math.round);
+  const k=[a.join(','),b.join(',')].sort().join('|');
+  if(seen.has(k))continue;seen.add(k);L+=seg3(a,b)}
+ return L}
 function roomBOMRows(){const m=new Map();for(const it of (S.room?S.room.items:[])){const d=rdef(it);if(d.opening)continue;const k='Room: '+(d.desc?d.desc(it.props):rname(it));m.set(k,(m.get(k)||0)+1)}
- return [...m].sort().map(([k,q])=>[k,q,'pcs'])}
+ const rows=[...m].sort().map(([k,q])=>[k,q,'pcs']);
+ const cm=new Map();
+ for(const r of roomRuns()){const k=`Room cable: ${r.circuit.cable} mm² — ${r.circuit.name}`;cm.set(k,(cm.get(k)||0)+r.len)}
+ rows.push(...[...cm].sort().map(([k,L])=>[k,(L/1000*1.1).toFixed(2),'m']));
+ const cd=conduitLen();if(cd)rows.push(['Room: conduit / trunking (shared runs counted once)',(cd/1000*1.1).toFixed(2),'m']);
+ return rows}
 
 /* =========================================================
    2D editor (one wall or the ceiling)
@@ -339,6 +436,12 @@ function draw2D(){if(appMode!=='room'||surf==='3d')return;const Rm=RM(),isC=surf
  else for(const [h,t] of HEIGHT_GUIDES){if(h>=H)continue;o+=ln(0,H-h,len,H-h,'#d9b98a',1,'10 7')+halo(-8*u,H-h+4*u,innerWidth<600?String(h):`${h} ${t}`,9.5*u,'#b08850','end')}
  // ruler
  const ry=isC?H+Rm.t+48*u:H+90+18*u;for(let x=0;x<=len+1;x+=500){o+=ln(x,ry-5*u,x,ry+5*u,'#8a8f94');o+=halo(x,ry+17*u,x%1000?'':(x/1000)+' m',9.5*u,'#8a8f94')}o+=ln(0,ry,len,ry,'#8a8f94');
+ // conduit runs (under the items, so a point is never hidden by its own cable)
+ if(settings.rwire!==false){const sel=rsel&&rfind(rsel);
+  for(const r of roomRuns()){const lit=sel&&(r.item.id===sel.id||r.circuit.id===sel.props.circuit);
+   for(const seg of runOnSurf(r.pts,surf)){
+    const d=seg.map((p,i)=>`${i?'L':'M'}${p.x} ${isC?p.y:Rm.h-p.y}`).join(' ');
+    o+=`<path d="${d}" fill="none" stroke="${lit?'#ff9500':'#7a6cff'}" stroke-width="${lit?3.2:2}" stroke-linecap="round" stroke-linejoin="round" opacity="${lit?1:.55}" vector-effect="non-scaling-stroke"/>`}}}
  // items (openings first)
  const items=Rm.items.filter(i=>i.surf===surf).sort((a,b)=>(rdef(b).opening?1:0)-(rdef(a).opening?1:0));
  for(const it of items){const w=iw(it),h=ih(it),cx=it.x,cy=toSvgY(it);o+=`<g data-ri="${it.id}" transform="translate(${cx-w/2},${cy-h/2})">${rdef(it).draw(it.props,w,h)}<rect x="0" y="0" width="${w}" height="${h}" fill="#000" fill-opacity="0"/></g>`;
@@ -465,6 +568,13 @@ function build3D(){const t=T3;if(!t)return;const Rm=RM(),T=Rm.t;
   const text=it.props.label||(rdef(it).opening?'':rname(it));if(text){const el=document.createElement('div');el.className='lbl';el.textContent=text;el.dataset.rid=it.id;lbl.appendChild(el);
    const a=new THREE.Vector3();if(it.surf==='ceil')a.set(it.x,Rm.h-(rdef(it).model==='fan'?+it.props.drop+160:rdef(it).model==='pendant'?+it.props.drop+140:40),it.y);else{const W=wallGeo(it.surf);a.copy(V(W.o)).addScaledVector(V(W.d),it.x).add(new THREE.Vector3(0,it.y+ih(it)/2+40,0)).addScaledVector(V(W.n),rdef(it).depth+10)}
    t.labels.push({el,pos:a,surf:it.surf,id:it.id})}}
+ // conduit runs, nudged off the surface so they don't z-fight with it
+ if(settings.rwire!==false){const sel=rsel&&rfind(rsel),wires=new THREE.Group();
+  for(const r of roomRuns()){const lit=sel&&(r.item.id===sel.id||r.circuit.id===sel.props.circuit);
+   const v=r.pts.map(nudge).map(p=>new THREE.Vector3(p[0],p[1],p[2]));
+   const g=new THREE.BufferGeometry().setFromPoints(v);
+   wires.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:lit?0xff9500:0x7a6cff,transparent:true,opacity:lit?1:.7})))}
+  t.root.add(wires);t.wires=wires}
  const s=rsel&&rfind(rsel);if(s){const o=t.wallItems[s.surf].children.find(c=>c.userData.rid===s.id);if(o){t.selBox=new THREE.BoxHelper(o,0x0a84ff);t.root.add(t.selBox)}}}
 function wallFacesCamera(W,cam){const n=V(W.n),o=V(W.o);return n.dot(cam.clone().sub(o))>0}
 function render3D(){const t=T3;if(!t||surf!=='3d'||appMode!=='room')return;const host=$('#r3d'),w=host.clientWidth,h=host.clientHeight;if(!w||!h)return;
