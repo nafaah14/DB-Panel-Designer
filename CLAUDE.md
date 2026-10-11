@@ -56,6 +56,11 @@ Scripts are classic `<script>` tags sharing one global scope (top-level `const`/
 
 ## Roadmap
 - **v2: room wiring — done (2.1–2.3).** See "Room wiring" above.
-- **v3 (next):** link room circuits to panel MCB labels; multiple rooms + floor plan; printable elevations sheet.
-  - Multiple rooms is the big one: `S.room` is a single object today, so it means `S.rooms[]` + a current-room id, a migration, and a room switcher. Everything in room.js reads `RM()`, so the read path is already funnelled through one accessor.
-  - Not done in v2, deliberately: conduit is radial (each point measured back to the board, not looped in), cable colours aren't split L/N/E, and junction boxes aren't used as routing waypoints.
+- **v3 — done bar the floor plan:** panel-breaker links (2.4), elevations sheet (2.5), multiple rooms (2.6).
+- **Next: the floor plan.** Rooms exist as a list but have no position relative to each other, which is what a floor plan needs — at minimum an x/y offset and a rotation per room, then a plan view that draws them together. Worth settling first: do adjacent rooms share a wall, or does each keep its own four?
+- Still not done, deliberately: conduit is radial (each point measured back to the board, not looped in), cable colours aren't split L/N/E, and junction boxes aren't used as routing waypoints.
+
+### Rooms (2.6)
+- `S.rooms` = `[room,…]`, `S.roomId` = the one being edited; `RM()` resolves it and is how every read in room.js gets the current room. `withRoom(r,fn)` runs something against another room and restores — used by the BOM, which covers all rooms.
+- `migrate()` wraps a pre-2.6 single `doc.room` into the list, so old projects and exported JSON still open.
+- Duplicating a room re-ids everything and remaps `props.circuit` and `props.controls` onto the copies; forgetting either would leave the copy pointing at the original's objects.

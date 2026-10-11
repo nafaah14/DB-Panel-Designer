@@ -21,11 +21,20 @@ const WALL_KEYS=['A','B','C','D'];
 const SNAP_H=[300,450,1100,1200,1800,2100,2300]; // common mounting heights (centre, mm)
 const HEIGHT_GUIDES=[[300,'Sockets'],[1200,'Switches'],[2100,'AC point']];
 let surf='3d', rsel=null, rview={x:0,y:0,k:1}, lastWall='A', allDims=false;
-const RM=()=>S.room;
+/** The room being edited. A project holds `S.rooms` (one or more) and
+ *  `S.roomId`; everything in this file reads the current one through
+ *  here, which is what made going multi-room a contained change. */
+const RM=()=>{const rs=S.rooms;if(!Array.isArray(rs)||!rs.length)return null;
+ return rs.find(r=>r.id===S.roomId)||rs[0]};
+/** Run fn with a different room current, then put it back. Used for
+ *  whole-project work (BOM, sheets) where the routing helpers all read
+ *  RM() rather than taking a room argument. */
+function withRoom(r,fn){const keep=S.roomId;S.roomId=r.id;try{return fn()}finally{S.roomId=keep}}
 
 /* ---------- room model ---------- */
-function defaultRoom(){return {name:'Room 1',w:3600,l:3000,h:2700,t:150,walls:{A:'North',B:'East',C:'South',D:'West'},items:[],circuits:[]}}
+function defaultRoom(){return {id:'',name:'Room 1',w:3600,l:3000,h:2700,t:150,walls:{A:'North',B:'East',C:'South',D:'West'},items:[],circuits:[]}}
 function normRoom(r){const d=defaultRoom();const o=Object.assign(d,r||{});o.walls=Object.assign(defaultRoom().walls,(r&&r.walls)||{});
+ o.id=String(o.id||uid());o.name=String(o.name||'Room').trim()||'Room';
  ['w','l','h','t'].forEach(k=>o[k]=Math.max(k==='t'?50:1000,+o[k]||d[k]));
  o.items=(Array.isArray(o.items)?o.items:[]).filter(i=>i&&RDEFS[i.type]).map(i=>{const def=RDEFS[i.type];
   const sf=def.surf==='ceil'?'ceil':(WALL_KEYS.includes(i.surf)?i.surf:'A');
@@ -280,11 +289,13 @@ function demoRoom(){const it=(type,surf,x,y,props={})=>({id:uid(),type,surf,x,y,
   it('dl','ceil',900,2250,{label:'LED light',circuit:'LIGHT 1'}),it('dl','ceil',2700,2250,{label:'LED light',circuit:'LIGHT 1'}),it('jbc','ceil',1800,900,{label:'JB'})]})}
 
 /* ---------- mode enter / leave / refresh ---------- */
-function roomEnter(boot){if(!S.room)S.room=normRoom(null);if(!boot){roomRefresh(true)}}
+function ensureRooms(){if(!Array.isArray(S.rooms)||!S.rooms.length)S.rooms=[normRoom(null)];
+ if(!S.rooms.some(r=>r.id===S.roomId))S.roomId=S.rooms[0].id}
+function roomEnter(boot){ensureRooms();if(!boot){roomRefresh(true)}}
 function roomLeave(){rsel=null;stop3D()}
 function roomReset(){rsel=null;texCache.clear()}
 function setSurf(k,keepSel){surf=k;if(k!=='3d'&&k!=='ceil')lastWall=k;if(!keepSel)rsel=null;document.body.classList.toggle('r3d',k==='3d');roomRefresh(true);updUI()}
-function roomRefresh(refit){if(appMode!=='room')return;if(!S.room)S.room=normRoom(null);document.body.classList.toggle('r3d',surf==='3d');
+function roomRefresh(refit){if(appMode!=='room')return;ensureRooms();document.body.classList.toggle('r3d',surf==='3d');
  if(surf==='3d'){draw2DClear();show3D(refit)}else{stop3D();if(refit)roomFit(true);else draw2D()}}
 function roomCommit(){save();roomRefresh(false);updUI()}
 
@@ -295,6 +306,7 @@ function roomUpdUI(){const Rm=RM(),tabs=$('#roomTabs');
   (surf==='3d'?`<span class="rtsep"></span><button class="rtb" data-r3="reset">Reset view</button><button class="rtb ${settings.r3labels!==false?'on2':''}" data-r3="labels">Labels</button><button class="rtb ${settings.r3cut!==false?'on2':''}" data-r3="cut">Cutaway</button>`
    :`<span class="rtsep"></span><button class="rtb ${allDims?'on2':''}" data-r2="dims">All heights</button>`)+
   `<button class="rtb ${settings.rwire!==false?'on2':''}" data-r3="wire">Wiring</button>`+
+  `<button class="rtb" data-r3="rooms">🏠 Rooms${S.rooms&&S.rooms.length>1?` <small>${S.rooms.length}</small>`:''}</button>`+
   `<button class="rtb" data-r3="cct">⚡ Circuits</button><button class="rtb" data-r3="room">⚙ Room</button>`;
  const it=rsel&&rfind(rsel),sb=$('#selbar');
  if(it){const isW=it.surf!=='ceil',pos=isW?`${Math.round(it.x)} from left · h ${Math.round(it.y)}`:`${Math.round(it.x)} from ${Rm.walls.D?'W':'D'} · ${Math.round(it.y)} from ${Rm.walls.A?'N':'A'}`;
@@ -310,6 +322,7 @@ $('#roomTabs').addEventListener('click',e=>{const b=e.target.closest('button');i
  else if(a==='cut'){settings.r3cut=settings.r3cut===false;saveSettings();updUI();req3D()}
  else if(a==='dims'){allDims=!allDims;draw2D();updUI()}
  else if(a==='wire'){settings.rwire=settings.rwire===false;saveSettings();updUI();if(surf==='3d'){build3D();req3D()}else draw2D()}
+ else if(a==='rooms')openRooms();
  else if(a==='cct')openCircuits();
  else if(a==='room')openRoomSettings()});
 $('#selbar').addEventListener('click',e=>{if(appMode!=='room')return;const b=e.target.closest('[data-ra]');if(!b)return;const a=b.dataset.ra,it=rfind(rsel);if(!it)return;
@@ -330,7 +343,7 @@ function roomAdd(type,props,title){const d=RDEFS[type];pushUndo();
  clampItem(it);RM().items.push(it);rsel=it.id;
  const moved=surf!==sf;if(moved)setSurf(sf,true);else roomCommit();save();
  toast(`Added ${title} to ${surfName(sf)}${d.surf!=='ceil'?' — drag to place':''}`)}
-function roomDel(){const it=rfind(rsel);if(!it)return;pushUndo();S.room.items=RM().items.filter(i=>i.id!==it.id);
+function roomDel(){const it=rfind(rsel);if(!it)return;pushUndo();RM().items=RM().items.filter(i=>i.id!==it.id);
  /* Drop it from any switch that was driving it — normRoom prunes this on
     load too, but not until the next load, and a stale id would route a
     cable to a point that no longer exists. */
@@ -419,6 +432,49 @@ function openCircuits(){
      c.cable=+fd.get('c_'+c.id)||c.cable;c.breaker=String(fd.get('b_'+c.id)||'')}
     closeModal();roomCommit()}})};
  draw()}
+/* ---------- rooms: switch, add, duplicate, delete ---------- */
+function switchRoom(id){if(!S.rooms.some(r=>r.id===id))return;
+ S.roomId=id;rsel=null;texCache.clear();roomRefresh(true);save();updUI()}
+function openRooms(){
+ const draw=()=>{const rs=S.rooms;
+  const rows=rs.map(r=>{const pts=r.items.filter(i=>!RDEFS[i.type].opening).length;
+   return `<div class="cct">
+    <div class="cct-l"><input name="n_${r.id}" value="${esc(r.name)}" maxlength="30" autocomplete="off" placeholder="Room name">
+     ${rs.length>1?`<button type="button" class="bb danger" data-delr="${r.id}" title="Delete room">✕</button>`:''}</div>
+    <div class="cct-l"><span class="cct-n" style="text-align:left">${(r.w/1000).toFixed(2)} × ${(r.l/1000).toFixed(2)} × ${(r.h/1000).toFixed(2)} m · ${pts} point${pts===1?'':'s'} · ${r.circuits.length} circuit${r.circuits.length===1?'':'s'}</span></div>
+    <div class="cct-l">${r.id===S.roomId
+      ?`<span class="cct-cur">Editing this room</span>`
+      :`<button type="button" class="bb" data-gor="${r.id}">Open</button>`}
+     <button type="button" class="bb" data-dupr="${r.id}">Duplicate</button></div></div>`}).join('');
+  openModal(`<h3>Rooms</h3><form id="rmf">${rows}
+   <div class="mact" style="justify-content:flex-start;margin-top:10px"><button type="button" class="bb" id="rAdd">+ Add room</button></div>
+   <p class="muted">The panel is shared by every room in the project — circuits in any room can point at its breakers.</p>
+   <div class="mact"><button type="button" class="bb" data-close>Cancel</button><button class="bb pri">Save names</button></div></form>`,box=>{
+   box.querySelector('#rAdd').onclick=()=>{pushUndo();
+    const r=normRoom({name:'Room '+(S.rooms.length+1)});S.rooms.push(r);S.roomId=r.id;rsel=null;save();draw()};
+   box.querySelectorAll('[data-gor]').forEach(b=>b.onclick=()=>{closeModal();switchRoom(b.dataset.gor);toast('Editing '+RM().name)});
+   box.querySelectorAll('[data-dupr]').forEach(b=>b.onclick=()=>{pushUndo();
+    const src=S.rooms.find(r=>r.id===b.dataset.dupr),c=normRoom(JSON.parse(JSON.stringify(src)));
+    /* Fresh ids throughout, or the copy's points and circuits would be
+       the same objects-by-id as the original's. */
+    c.id=uid();c.name=src.name+' copy';
+    const cmap=new Map();c.circuits.forEach(x=>{const n=uid();cmap.set(x.id,n);x.id=n});
+    const imap=new Map();c.items.forEach(i=>{const n=uid();imap.set(i.id,n);i.id=n});
+    c.items.forEach(i=>{
+     if(i.props.circuit)i.props.circuit=cmap.get(i.props.circuit)||'';
+     /* Remap, don't drop: a duplicated room keeps which gang drives
+        which light, pointed at the copies rather than the originals. */
+     if(Array.isArray(i.props.controls))i.props.controls=i.props.controls.map(row=>row.map(id=>imap.get(id)).filter(Boolean))});
+    S.rooms.push(c);S.roomId=c.id;rsel=null;save();draw()});
+   box.querySelectorAll('[data-delr]').forEach(b=>b.onclick=()=>{const r=S.rooms.find(x=>x.id===b.dataset.delr);
+    if(!confirm(`Delete "${r.name}" and everything in it?`))return;
+    pushUndo();S.rooms=S.rooms.filter(x=>x.id!==r.id);
+    if(S.roomId===r.id){S.roomId=S.rooms[0].id;rsel=null}
+    save();draw()});
+   box.querySelector('#rmf').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);pushUndo();
+    for(const r of S.rooms){const nm=String(fd.get('n_'+r.id)??r.name).trim();if(nm)r.name=nm}
+    closeModal();roomRefresh(true);save();updUI()}})};
+ draw()}
 function openRoomSettings(){const Rm=RM();
  openModal(`<h3>Room settings</h3><form id="rsf"><label>Room name<input name="name" value="${esc(Rm.name)}" maxlength="40"></label>
  <label>Width — Wall A / C length (mm)<input name="w" type="number" inputmode="numeric" value="${Rm.w}"></label>
@@ -447,12 +503,20 @@ function conduitLen(){const seen=new Set();let L=0;
   const k=[a.join(','),b.join(',')].sort().join('|');
   if(seen.has(k))continue;seen.add(k);L+=seg3(a,b)}
  return L}
-function roomBOMRows(){const m=new Map();for(const it of (S.room?S.room.items:[])){const d=rdef(it);if(d.opening)continue;const k='Room: '+(d.desc?d.desc(it.props):rname(it));m.set(k,(m.get(k)||0)+1)}
+/** Covers every room in the project, not just the one on screen — a
+ *  BOM you order from has to. Circuit and cable rows carry the room
+ *  name once there is more than one. */
+function roomBOMRows(){const rooms=Array.isArray(S.rooms)?S.rooms:[];if(!rooms.length)return [];
+ const many=rooms.length>1,m=new Map(),cm=new Map();let cd=0;
+ for(const R of rooms)withRoom(R,()=>{
+  const tag=many?`${R.name}: `:'Room: ';
+  for(const it of R.items){const d=rdef(it);if(d.opening)continue;
+   const k=tag+(d.desc?d.desc(it.props):rname(it));m.set(k,(m.get(k)||0)+1)}
+  for(const r of roomRuns()){const k=`${many?R.name:'Room'} cable: ${r.circuit.cable} mm² — ${r.circuit.name}`;cm.set(k,(cm.get(k)||0)+r.len)}
+  cd+=conduitLen()});
  const rows=[...m].sort().map(([k,q])=>[k,q,'pcs']);
- const cm=new Map();
- for(const r of roomRuns()){const k=`Room cable: ${r.circuit.cable} mm² — ${r.circuit.name}`;cm.set(k,(cm.get(k)||0)+r.len)}
  rows.push(...[...cm].sort().map(([k,L])=>[k,(L/1000*1.1).toFixed(2),'m']));
- const cd=conduitLen();if(cd)rows.push(['Room: conduit / trunking (shared runs counted once)',(cd/1000*1.1).toFixed(2),'m']);
+ if(cd)rows.push(['Room: conduit / trunking (shared runs counted once)',(cd/1000*1.1).toFixed(2),'m']);
  return rows}
 
 /* =========================================================

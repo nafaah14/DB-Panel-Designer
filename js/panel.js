@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.5.0';
+const APP_VERSION='2.6.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -223,25 +223,33 @@ function migrate(doc){
  if(!ids.has(defs.items))defs.items=L[0].id;if(!ids.has(defs.wires))defs.wires=L[L.length-1].id;
  const items=(doc.items||[]).map(normalize).filter(Boolean);items.forEach(i=>{if(!ids.has(i.layer))i.layer=defs.items});
  const wires=(doc.wires||[]).filter(w=>w&&w.a&&w.b).map(w=>{delete w.by;if(!ids.has(w.layer))w.layer=defs.wires;if(!Array.isArray(w.path)||!w.path.length)delete w.path;return w});
- const room=normRoom(doc.room);
+ /* Rooms: `rooms` since 2.6. Before that a project held one `room`,
+    which is wrapped into the list here so older projects and exported
+    JSON open unchanged. */
+ const rooms=(Array.isArray(doc.rooms)&&doc.rooms.length?doc.rooms:[doc.room]).map(normRoom);
+ const rids=new Set(rooms.map(r=>r.id));
+ const roomId=rids.has(doc.roomId)?doc.roomId:rooms[0].id;
  /* Room circuits can point at a panel breaker by id. This is the only
     place that sees both lists, so it is where a link to a breaker that
     has since been deleted gets cleared. */
  const pids=new Set(items.map(i=>i.id));
- room.circuits.forEach(c=>{if(c.breaker&&!pids.has(c.breaker))c.breaker=''});
- return {name:doc.name||'Untitled panel',items,wires,layers:L,defs,room}}
+ rooms.forEach(r=>r.circuits.forEach(c=>{if(c.breaker&&!pids.has(c.breaker))c.breaker=''}));
+ return {name:doc.name||'Untitled panel',items,wires,layers:L,defs,rooms,roomId}}
 const layerOf=id=>S.layers.find(l=>l.id===id)||S.layers[0];
 const isVis=o=>layerOf(o.layer).visible;
 const isLocked=o=>layerOf(o.layer).locked;
 const objOf=s=>s.kind==='item'?find(s.id):S.wires.find(w=>w.id===s.id);
 
 /* ---------- persistence & undo ---------- */
-const docData=()=>({items:S.items,wires:S.wires,layers:S.layers,defs:S.defs,room:S.room});
+const docData=()=>({items:S.items,wires:S.wires,layers:S.layers,defs:S.defs,rooms:S.rooms,roomId:S.roomId});
 function save(){if(!curId)return;const P=loadProjects();P[curId]={name:S.name,updated:Date.now(),appVersion:APP_VERSION,data:docData()};saveProjects(P);lsSet(LS_C,curId)}
 const snap=()=>JSON.stringify(docData());
 function pushUndo(){undoS.push(snap());if(undoS.length>80)undoS.shift();redoS=[];updButtons()}
 function restore(js){const o=JSON.parse(js),keep=new Map(S.layers.map(l=>[l.id,{visible:l.visible,locked:l.locked}]));
- S.items=o.items;S.wires=o.wires;S.layers=o.layers;S.defs=o.defs;S.room=normRoom(o.room);S.layers.forEach(l=>{const k=keep.get(l.id);if(k)Object.assign(l,k)});sel=[];pending=null;commit()}
+ S.items=o.items;S.wires=o.wires;S.layers=o.layers;S.defs=o.defs;
+ S.rooms=(Array.isArray(o.rooms)&&o.rooms.length?o.rooms:[o.room]).map(normRoom);
+ S.roomId=S.rooms.some(r=>r.id===o.roomId)?o.roomId:S.rooms[0].id;
+ S.layers.forEach(l=>{const k=keep.get(l.id);if(k)Object.assign(l,k)});sel=[];pending=null;commit()}
 function doUndo(){if(!undoS.length)return;redoS.push(snap());restore(undoS.pop())}
 function doRedo(){if(!redoS.length)return;undoS.push(snap());restore(redoS.pop())}
 function commit(){invalidate();save();if(appMode==='room')roomRefresh();else render();updUI();renderLayers()}
