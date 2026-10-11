@@ -212,7 +212,7 @@ body.room:not(.r3d) #r3d{display:none}
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.10.1';
+const APP_VERSION='2.11.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -462,7 +462,9 @@ function migratePanel(p,i){
     whichever board its DB points at, so there is one owner and nothing
     to keep in sync. */
  const circuits=(Array.isArray(p.circuits)?p.circuits:[]).filter(c=>c&&c.name)
-  .map(c=>({id:String(c.id||uid()),name:String(c.name).trim()||'Circuit',mcb:String(c.mcb||'').trim(),cable:+c.cable||1.5,breaker:String(c.breaker||'')}));
+  .map(c=>({id:String(c.id||uid()),name:String(c.name).trim()||'Circuit',mcb:String(c.mcb||'').trim(),cable:+c.cable||1.5,breaker:String(c.breaker||''),
+   /* Phase arrived in 2.11; everything before it was single-phase. */
+   phase:c.phase==='3'?'3':'1'}));
  return {id:String(p.id||uid()),name:String(p.name||`Panel ${i+1}`).trim()||`Panel ${i+1}`,items,wires,layers:L,defs,circuits}}
 /**
  * S.items / S.wires / S.layers / S.defs are accessors onto the CURRENT
@@ -1210,7 +1212,9 @@ const rname=it=>{const d=rdef(it);return typeof d.name==='function'?d.name(it.pr
    A circuit is {id,name,mcb,cable}. Points reference one by id in
    props.circuit; '' means unassigned. Wiring (routing, cable lengths)
    is grouped by circuit, so this list is the spine of room wiring. */
-const CABLE_SIZES=[1,1.5,2.5,4,6,10];
+/* Up to 95 mm²: a workshop sub-main or a 125 A industrial socket is
+   well past the 10 mm² a domestic final circuit tops out at. */
+const CABLE_SIZES=[1,1.5,2.5,4,6,10,16,25,35,50,70,95];
 /** The DBs in this room, and the boards they point at. A DB with no
  *  panel chosen yet contributes nothing. */
 const roomDBs=()=>RM()?RM().items.filter(i=>i.type==='db'&&i.surf!=='ceil'):[];
@@ -1227,7 +1231,7 @@ const circuits=()=>roomPanels().flatMap(p=>p.circuits||[]);
 const circuitById=id=>id?(allPanels().flatMap(p=>p.circuits||[]).find(c=>c.id===id)||null):null;
 const panelOfCircuit=id=>allPanels().find(p=>(p.circuits||[]).some(c=>c.id===id))||null;
 const circuitLabel=c=>{if(!c)return '—';const m=circuitMcb(c);
- return `${c.name}${m?' · '+m:''}${c.cable?' · '+c.cable+' mm²':''}`};
+ return `${c.name}${m?' · '+m:''}${c.cable?' · '+c.cable+' mm²':''}${circuitPhase(c)==='3'?' · 3φ':''}`};
 /** Points on a circuit in the room being edited. */
 const circuitItems=id=>RM()?RM().items.filter(i=>i.props.circuit===id):[];
 /** …and across the whole project, since a panel's circuits can now be
@@ -1267,10 +1271,20 @@ const circuitMcb=c=>{const b=breakerById(c.breaker);return b?breakerText(b):(c.m
    looks wrong" flag — it is NOT a sizing calculation and ignores
    install method, grouping, ambient temperature and volt drop, so the
    UI says so wherever it fires. */
-const CABLE_MAX_A={1:10,1.5:16,2.5:20,4:25,6:32,10:45};
+const CABLE_MAX_A={1:10,1.5:16,2.5:20,4:25,6:32,10:45,16:61,25:80,35:99,50:119,70:151,95:182};
 function cableWarn(c){const b=breakerById(c.breaker);if(!b)return '';
  const a=+(b.props&&b.props.rating),max=CABLE_MAX_A[+c.cable];
  return a&&max&&a>max?`${c.cable} mm² on a ${a} A breaker looks undersized — check against the install method.`:''}
+/* A circuit is 1φ or 3φ. Not cosmetic: it decides how many cores the
+   run needs, and a 3-phase load on a single-phase way is a mistake
+   worth flagging the moment it is made. */
+const PHASES=[['1','1φ 230 V'],['3','3φ 400 V']];
+const circuitPhase=c=>(c&&c.phase==='3')?'3':'1';
+const phaseLabel=c=>circuitPhase(c)==='3'?'3φ':'1φ';
+/** Points on a circuit that need three phases but are not on one. */
+function phaseWarn(c){if(circuitPhase(c)==='3')return '';
+ const bad=circuitItemsAll(c.id).filter(it=>String(it.props.poles||'').startsWith('3'));
+ return bad.length?`${bad.length} 3-phase ${bad.length===1?'point is':'points are'} on this single-phase circuit — set it to 3φ 400 V.`:''}
 
 /* ---------- switch → load links ----------
    A switch stores props.controls: one array of item ids per gang/way.
@@ -1278,9 +1292,28 @@ function cableWarn(c){const b=breakerById(c.breaker);if(!b)return '';
    by reference, so a shared default [] would have every switch in the
    room writing into the same one. normControls() always builds fresh
    arrays instead, and is applied wherever a switch is created or edited. */
-const SWITCHABLE=new Set(['dl','ledp','fan','pend','wl','exh']);
+const SWITCHABLE=new Set(['dl','ledp','fan','pend','wl','exh',
+ /* industrial (2.11) — lighting a switch drives, and the machines an
+    isolator or starter drives */
+ 'hbay','batten','flood','bulk','emlt','exitsg','motor']);
 const isLoad=it=>SWITCHABLE.has(it.type);
+/* Control gear that can itself hang off upstream control gear. The real
+   workshop chain is board → isolator → starter → motor, with an E-stop
+   in front of the starter, so a control device has to be assignable to
+   another one. Plate switches are deliberately absent: nobody feeds a
+   light switch from a contactor, and listing every switch inside every
+   other switch's tick-list would be noise. */
+const CHAINABLE=new Set(['iso','cont','dol','sd','vfd','estop','pbs']);
+/** Anything that can be fed from a control device rather than straight
+ *  off the board — a load, or control gear further down the chain. */
+const canDrive=it=>isLoad(it)||CHAINABLE.has(it.type);
 const waysOf=it=>{const d=rdef(it);return d.ways?Math.max(1,d.ways(it.props)):0};
+/** What a control device can be assigned: every load and every piece of
+ *  downstream gear in the room, itself excluded. Loads first — on a
+ *  lighting switch that is the whole list, and it keeps the common case
+ *  at the top. */
+const drivablesIn=self=>{const id=self&&self.id,all=RM().items.filter(i=>i.id!==id&&canDrive(i));
+ return [...all.filter(isLoad),...all.filter(i=>!isLoad(i))]};
 const loadsIn=()=>RM().items.filter(isLoad);
 /* Position is part of the name on purpose: a room with four identical
    "LED light · Ceiling" entries is unpickable without it. */
@@ -1351,8 +1384,15 @@ const routeLen=P=>{let L=0;for(let i=1;i<P.length;i++)L+=seg3(P[i-1],P[i]);retur
 /** Which circuit a point is actually on. An explicit choice always
  *  wins; a light or fan left blank inherits the circuit of the switch
  *  driving it, because that is the breaker it hangs off in reality. */
-function effCircuit(it){const own=circuitById(it.props.circuit);if(own)return own;
- if(isLoad(it)){const s=switchesFor(it.id)[0];if(s)return circuitById(s.sw.props.circuit)}
+function effCircuit(it){const seen=new Set();
+ for(let cur=it,d=0;cur&&d<8;d++){
+  const own=circuitById(cur.props.circuit);if(own)return own;
+  /* Walk up the chain — a motor inherits from its starter, which
+     inherits from its isolator — so only the top of a chain needs a
+     circuit set. The visited guard is what keeps a user-made loop
+     (A drives B, B drives A) from spinning here. */
+  if(!canDrive(cur)||seen.has(cur.id))break;
+  seen.add(cur.id);const up=switchesFor(cur.id)[0];cur=up?up.sw:null}
  return null}
 const effCircuitId=it=>{const c=effCircuit(it);return c?c.id:''};
 /**
@@ -1381,12 +1421,18 @@ function roomRuns(){const Rm=RM();if(!Rm)return [];
  for(const it of Rm.items){
   if(it.type==='db'||rdef(it).opening)continue;
   const c=effCircuit(it);if(!c)continue;
-  if(isLoad(it)){const s=switchesFor(it.id)[0];
-   if(s){add(c,it,s.sw,'switched',s.sw,it);continue}}
+  if(canDrive(it)){const s=switchesFor(it.id)[0];
+   if(s){add(c,it,s.sw,legKind(s.sw),s.sw,it);continue}}
   const db=dbForCircuit(c);if(!db)continue;
   add(c,it,db,'feed',it,dbEntry(db))}
  return out}
-const RUN_COLOR={feed:'#d62828',switched:'#e9b800'};
+/** What the cable out of a control device is. A plate switch hands on a
+ *  switched live; an isolator, starter or contactor hands on the whole
+ *  supply to the machine, which is a different cable and worth telling
+ *  apart on the drawing. */
+const legKind=sw=>CHAINABLE.has(sw.type)?'load':'switched';
+const RUN_COLOR={feed:'#d62828',switched:'#e9b800',load:'#e06c00'};
+const RUN_HEX={feed:0xd62828,switched:0xe9b800,load:0xe06c00};
 /* --- projecting a 3D run back onto the surface being drawn --- */
 function onWall(k,P){const W=wallGeo(k);const dx=P[0]-W.o[0],dz=P[2]-W.o[2];
  const perp=dx*W.n[0]+dz*W.n[2],sx=dx*W.d[0]+dz*W.d[2];
@@ -1411,6 +1457,29 @@ const rpSock=(cx,cy,big)=>{const r=big?5.5:3.8,e=big?7.5:5.2;return `<circle cx=
 const neon=(x,y,c='#ff3b30')=>`<rect x="${x-4}" y="${y-2.5}" width="8" height="5" rx="1.5" fill="${c}"/>`;
 const mt=(x,y,s,fs,fill='#2b2f33',w=700)=>txt(x,y,s,fs,fill,w);
 function rockers(w,h,n){const rw=Math.min(30,(w-16)/n-6),out=[];for(let i=0;i<n;i++)out.push(rocker(w*(i+.5)/n,h/2,rw,52));return out.join('')}
+/* --- industrial symbols (2.11) ---
+   Industrial gear sits in an IP-rated enclosure with fixing lugs, not on
+   a flush plate, so it reads as a box on the wall rather than a switch.
+   That difference is the whole point of drawing it. */
+const encl=(w,h,fill='#d8dbd5',stroke='#6f767c')=>
+ `<rect x="${w*0.06}" y="2" width="${w*0.88}" height="${h-4}" rx="6" fill="${fill}" stroke="${stroke}" stroke-width="2.5"/>`+
+ [0.18,0.68].flatMap(f=>[0,1].map(side=>
+  `<rect x="${side?w*0.94-1:1}" y="${h*f}" width="${w*0.06}" height="${h*0.14}" rx="2" fill="${stroke}"/>`)).join('');
+/** IEC 60309 ("CEE form") socket face: body coloured by voltage —
+ *  blue 2P+E 230 V, red 3P+N+E 400 V — keyway at the top and one pin
+ *  per pole, earth largest. */
+function cee(cx,cy,R,poles){const p3=String(poles).startsWith('3'),body=p3?'#c0392b':'#1f6fd0',n=p3?5:3;
+ let s=`<circle cx="${cx}" cy="${cy}" r="${R}" fill="${body}" stroke="#2b2f33" stroke-width="2.5"/>`
+  +`<circle cx="${cx}" cy="${cy}" r="${R*0.72}" fill="#efeee8" stroke="#2b2f33" stroke-width="1.5"/>`
+  +`<rect x="${cx-R*0.18}" y="${cy-R*1.02}" width="${R*0.36}" height="${R*0.32}" rx="2" fill="#2b2f33"/>`;
+ for(let i=0;i<n;i++){const a=Math.PI/2+i*2*Math.PI/n;
+  s+=`<circle cx="${cx+Math.cos(a)*R*0.4}" cy="${cy+Math.sin(a)*R*0.4}" r="${R*(i?0.13:0.17)}" fill="#2b2f33"/>`}
+ return s}
+/** Rotary isolator handle — yellow body, black lever, as installed. */
+const rotary=(cx,cy,R)=>`<circle cx="${cx}" cy="${cy}" r="${R}" fill="#e8c21f" stroke="#8a7410" stroke-width="2.5"/>`
+ +`<rect x="${cx-R*0.17}" y="${cy-R*0.84}" width="${R*0.34}" height="${R*1.68}" rx="${R*0.17}" fill="#2b2f33" transform="rotate(-35 ${cx} ${cy})"/>`;
+const pbtn=(cx,cy,r,c)=>`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${c}" stroke="#2b2f33" stroke-width="2"/><circle cx="${cx}" cy="${cy-r*0.25}" r="${r*0.55}" fill="#ffffff" opacity=".2"/>`;
+const tube=(x,y,w,h)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${h/2}" fill="#fff6c8" stroke="#dcc46a" stroke-width="2"/>`;
 
 /* ---------- item library ---------- */
 const RP_LBL={k:'label',label:'Label (shown in 3D)',type:'text'};
@@ -1436,8 +1505,8 @@ const RDEFS={
   draw:(p,w,h)=>{let s=plate(w,h);if(p.kind!=='Data')s+=`<circle cx="${p.kind==='TV'?w/2:w/2-17}" cy="${h/2}" r="9" fill="#e4e5e2" stroke="#5b6166" stroke-width="2"/><circle cx="${p.kind==='TV'?w/2:w/2-17}" cy="${h/2}" r="2.5" fill="#2b2f33"/>`;
    if(p.kind!=='TV')s+=`<rect x="${p.kind==='Data'?w/2-9:w/2+8}" y="${h/2-8}" width="18" height="16" rx="2" fill="#2b2f33"/>`;return s+mt(w/2,h-8,p.kind,8,'#6b7075')},desc:p=>`${p.kind} outlet plate`}),
  wl:RW({name:'Wall light',w:120,h:220,depth:170,model:'walllight',mount:1800,draw:(p,w,h)=>`<rect x="${w/2-22}" y="${h-70}" width="44" height="64" rx="8" fill="#c9a24a" stroke="#8a6d2a" stroke-width="2"/><path d="M${w/2-16},${h-60} Q${w/2},${h-110} ${w/2},${h-150}" fill="none" stroke="#8a6d2a" stroke-width="6"/><path d="M${w*0.12},${h*0.42} L${w*0.88},${h*0.42} L${w*0.75},4 L${w*0.25},4 Z" fill="#fff4cf" stroke="#c9b37a" stroke-width="2"/>`,desc:()=>'Wall light bracket'}),
- db:RW({name:p=>`DB ${p.ways}-way`,w:p=>({4:200,8:260,12:330,18:440,24:540}[p.ways]||260),h:p=>p.ways>18?400:320,depth:110,mount:1700,
-  ...withP([{k:'ways',label:'Ways',type:'select',opts:[4,8,12,18,24]},
+ db:RW({name:p=>`DB ${p.ways}-way`,w:p=>({4:200,8:260,12:330,18:440,24:540,36:640,48:740}[p.ways]||260),h:p=>+p.ways>24?520:+p.ways>18?400:320,depth:110,mount:1700,
+  ...withP([{k:'ways',label:'Ways',type:'select',opts:[4,8,12,18,24,36,48]},
    {k:'panel',label:'Panel — the board this DB is',type:'panel'}],{ways:8,label:'DB-1',panel:''}),
   draw:(p,w,h)=>`<rect x="1.5" y="1.5" width="${w-3}" height="${h-3}" rx="8" fill="#eceef0" stroke="#7d868c" stroke-width="3"/><rect x="14" y="14" width="${w-28}" height="${h-28}" rx="5" fill="#f7f8f9" stroke="#a9b0b5" stroke-width="2"/><rect x="34" y="${h*0.3}" width="${w-68}" height="${h*0.22}" rx="3" fill="#cfe3f3" stroke="#8aa9c2" stroke-width="1.5"/>`+mt(w/2,h*0.75,'DB',Math.min(40,w/5),'#59626a')+`<rect x="${w-30}" y="${h/2-14}" width="8" height="28" rx="3" fill="#7d868c"/>`,desc:p=>`Distribution board ${p.ways}-way`}),
  jbw:RW({name:'Junction box',w:75,h:75,depth:40,mount:2500,draw:(p,w,h)=>plate(w,h,'#efefea')+`<circle cx="12" cy="12" r="3" fill="#9aa1a6"/><circle cx="${w-12}" cy="${h-12}" r="3" fill="#9aa1a6"/>`+mt(w/2,h/2+5,'JB',14,'#7d858a'),desc:()=>'Junction box (wall)'}),
@@ -1446,7 +1515,166 @@ const RDEFS={
   draw:(p,w,h)=>{const hx=p.hinge==='left'?w-90:90;return `<rect x="0" y="0" width="${w}" height="${h}" fill="#e7dccb" stroke="#8b7355" stroke-width="6"/><rect x="40" y="40" width="${w-80}" height="${h*0.42}" rx="4" fill="none" stroke="#b8a283" stroke-width="5"/><rect x="40" y="${h*0.5}" width="${w-80}" height="${h*0.45}" rx="4" fill="none" stroke="#b8a283" stroke-width="5"/><rect x="${hx-12}" y="${h*0.47}" width="24" height="70" rx="10" fill="#8a8f94"/>`},desc:p=>`Door ${p.width}×${p.height}`}),
  win:RW({name:'Window',opening:true,model:'window',depth:40,w:p=>+p.width,h:p=>+p.height,mount:1500,...withP([{k:'width',label:'Width (mm)',type:'select',opts:[600,900,1200,1500,1800,2400]},{k:'height',label:'Height (mm)',type:'select',opts:[600,900,1200,1500]}],{width:1200,height:1200}),
   draw:(p,w,h)=>`<rect x="0" y="0" width="${w}" height="${h}" fill="#d7ecfa" stroke="#7e8a94" stroke-width="10"/><line x1="${w/2}" y1="0" x2="${w/2}" y2="${h}" stroke="#7e8a94" stroke-width="10"/><path d="M${w*0.1},${h*0.35} L${w*0.3},${h*0.15} M${w*0.6},${h*0.35} L${w*0.8},${h*0.15}" stroke="#ffffff" stroke-width="10" stroke-linecap="round" opacity=".8"/>`,desc:p=>`Window ${p.width}×${p.height}`}),
+ /* ---- industrial, wall (2.11) ----
+    Sizes are the real envelope of the gear, not a symbol size: a 125 A
+    socket really is 200 mm across and a star-delta starter 380, and a
+    workshop wall fills up fast. Ratings are the ones actually stocked.
+    None of this is a selection calculation — kW and amp are what you
+    tell it, and the BOM repeats them back. */
+ isk:RW({name:p=>`Industrial socket ${p.amp}A ${p.poles}`,depth:95,mount:1200,
+  w:p=>({16:100,32:125,63:160,125:200}[p.amp]||125)+(p.sw==='interlocked'?80:0),
+  h:p=>({16:115,32:140,63:185,125:230}[p.amp]||140),
+  ...withP([{k:'poles',label:'Poles',type:'select',opts:['1P','3P']},
+   {k:'amp',label:'Rating (A)',type:'select',opts:[16,32,63,125]},
+   {k:'sw',label:'Switch',type:'select',opts:['interlocked','plain']},
+   {k:'ip',label:'Protection',type:'select',opts:['IP67','IP44']}],{poles:'3P',amp:32,sw:'interlocked',ip:'IP67'}),
+  draw:(p,w,h)=>{const sw=p.sw==='interlocked',bw=sw?w-80:w,cx=sw?bw*0.52:w/2,R=Math.min(bw,h)*0.34;
+   let s=encl(w,h)+cee(cx,h*0.44,R,p.poles);
+   if(sw)s+=`<rect x="${w-76}" y="${h*0.2}" width="60" height="${h*0.58}" rx="6" fill="#eceee9" stroke="#6f767c" stroke-width="2"/>`
+    +rocker(w-46,h*0.49,32,h*0.36)+mt(w-46,h*0.86,'0–1',9,'#6b7075');
+   return s+mt(cx,h-8,`${p.amp}A ${p.poles}`,11,'#454b50')},
+  desc:p=>`Industrial socket ${p.amp}A ${String(p.poles).startsWith('3')?'3P+N+E 400 V':'2P+E 230 V'} IEC 60309 ${p.ip}${p.sw==='interlocked'?' interlocked':''}`}),
+ skwp:RW({name:p=>`Weatherproof socket 13A${p.twin==='yes'?' twin':''}`,depth:75,mount:1100,
+  w:p=>p.twin==='yes'?180:118,h:132,
+  ...withP([{k:'twin',label:'Twin',type:'select',opts:['no','yes']},
+   {k:'ip',label:'Protection',type:'select',opts:['IP66','IP55']}],{twin:'no',ip:'IP66'}),
+  draw:(p,w,h)=>{const n=p.twin==='yes'?2:1;let s=encl(w,h,'#e3e5e0');
+   for(let i=0;i<n;i++){const cx=w*0.08+w*0.84*(i+.5)/n;
+    s+=`<rect x="${cx-31}" y="${h*0.16}" width="62" height="${h*0.56}" rx="7" fill="#f3f3ee" stroke="#7d868c" stroke-width="2"/>`+bsSock(cx,h*0.5)}
+   return s+mt(w/2,h-8,p.ip,10,'#6b7075')},
+  desc:p=>`Weatherproof socket 13A ${p.twin==='yes'?'twin ':''}${p.ip}`}),
+ iso:RW({name:p=>`Isolator ${p.poles} ${p.amp}A`,depth:90,mount:1500,ways:()=>1,
+  w:p=>+p.amp<=32?100:+p.amp<=63?125:165,h:p=>+p.amp<=32?130:+p.amp<=63?165:215,
+  ...withP([{k:'poles',label:'Poles',type:'select',opts:['1P','2P','3P','4P']},
+   {k:'amp',label:'Rating (A)',type:'select',opts:[20,25,32,40,63,80,100,125]},
+   {k:'ip',label:'Protection',type:'select',opts:['IP65','IP66']}],{poles:'3P',amp:32,ip:'IP65'}),
+  draw:(p,w,h)=>{const n=+String(p.poles)[0]||1,R=Math.min(w,h)*0.22;
+   let s=encl(w,h)+rotary(w/2,h*0.42,R)+mt(w/2,h*0.42-R-5,'OFF',9,'#6b7075');
+   for(let i=0;i<n;i++){const x=w*0.22+w*0.56*(n===1?0.5:i/(n-1));
+    s+=`<line x1="${x}" y1="${h*0.68}" x2="${x}" y2="${h*0.76}" stroke="#6f767c" stroke-width="2.5"/>`}
+   return s+mt(w/2,h-8,`${p.poles} ${p.amp}A`,11,'#454b50')},
+  desc:p=>`Isolator / switch-disconnector ${p.poles} ${p.amp}A ${p.ip} enclosed`}),
+ estop:RW({name:'Emergency stop',depth:70,mount:1200,ways:()=>1,w:98,h:112,
+  ...withP([{k:'ip',label:'Protection',type:'select',opts:['IP65','IP66']}],{ip:'IP65'}),
+  draw:(p,w,h)=>encl(w,h,'#e8c21f','#8a7410')
+   +`<circle cx="${w/2}" cy="${h*0.42}" r="${Math.min(w,h)*0.27}" fill="#d81b1b" stroke="#7d1010" stroke-width="2.5"/>`
+   +`<circle cx="${w/2}" cy="${h*0.42}" r="${Math.min(w,h)*0.17}" fill="#ef3b3b"/>`
+   +mt(w/2,h-8,'E-STOP',11,'#5b4a08'),
+  desc:p=>`Emergency stop, latching mushroom head, ${p.ip}`}),
+ pbs:RW({name:p=>`Push-button station ${p.btn}-button`,depth:70,mount:1300,ways:p=>+p.btn,
+  w:p=>58+(+p.btn)*44,h:112,
+  ...withP([{k:'btn',label:'Buttons',type:'select',opts:[1,2,3,4]},
+   {k:'kind',label:'Function',type:'select',opts:['Start / Stop','Fwd / Rev','Up / Down','Custom']}],{btn:2,kind:'Start / Stop'}),
+  draw:(p,w,h)=>{const n=+p.btn,cols=['#2e9e4f','#d81b1b','#1f6fd0','#2b2f33'];let s=encl(w,h);
+   for(let i=0;i<n;i++)s+=pbtn(w*0.1+w*0.8*(i+.5)/n,h*0.41,16,cols[i%4]);
+   return s+mt(w/2,h-8,p.kind,10,'#6b7075')},
+  desc:p=>`Push-button station, ${p.btn}-button (${p.kind})`}),
+ cont:RW({name:p=>`Contactor ${p.amp}A`,depth:110,mount:1500,ways:()=>1,
+  w:p=>+p.amp<=25?135:+p.amp<=40?170:205,h:p=>+p.amp<=25?175:+p.amp<=40?205:245,
+  ...withP([{k:'amp',label:'Rating (A)',type:'select',opts:[9,12,18,25,32,40,63,95]},
+   {k:'coil',label:'Coil voltage',type:'select',opts:['230 V','400 V','24 V DC']},
+   {k:'aux',label:'Aux contacts',type:'select',opts:['1 NO','1 NC','1 NO + 1 NC','none']}],{amp:25,coil:'230 V',aux:'1 NO'}),
+  draw:(p,w,h)=>encl(w,h)
+   +`<rect x="${w*0.2}" y="${h*0.16}" width="${w*0.6}" height="${h*0.46}" rx="5" fill="#2f3337" stroke="#1d2023" stroke-width="2"/>`
+   +`<rect x="${w*0.28}" y="${h*0.23}" width="${w*0.44}" height="${h*0.13}" rx="2" fill="#5b6166"/>`
+   +mt(w/2,h*0.55,'KM',Math.min(24,w*0.18),'#e8eaec')
+   +mt(w/2,h-8,`${p.amp}A · ${p.coil}`,11,'#454b50'),
+  desc:p=>`Contactor ${p.amp}A, ${p.coil} coil${p.aux==='none'?'':', '+p.aux+' aux'}, enclosed`}),
+ dol:RW({name:p=>`DOL starter ${p.kw} kW`,depth:120,mount:1500,ways:()=>1,
+  w:p=>+p.kw<=4?155:+p.kw<=11?190:225,h:p=>+p.kw<=4?205:+p.kw<=11?245:285,
+  ...withP([{k:'kw',label:'Motor (kW)',type:'select',opts:[0.37,0.75,1.5,2.2,4,5.5,7.5,11,15,18.5,22]},
+   {k:'ip',label:'Protection',type:'select',opts:['IP55','IP65']}],{kw:4,ip:'IP55'}),
+  draw:(p,w,h)=>encl(w,h)
+   +`<rect x="${w*0.16}" y="${h*0.1}" width="${w*0.68}" height="${h*0.48}" rx="5" fill="#eceee9" stroke="#6f767c" stroke-width="2"/>`
+   +pbtn(w*0.37,h*0.28,15,'#2e9e4f')+pbtn(w*0.63,h*0.28,15,'#d81b1b')
+   +mt(w*0.37,h*0.5,'I',13,'#6b7075')+mt(w*0.63,h*0.5,'O',13,'#6b7075')
+   +mt(w/2,h*0.75,'DOL',Math.min(28,w*0.2),'#454b50')+mt(w/2,h-8,`${p.kw} kW`,11,'#454b50'),
+  desc:p=>`DOL starter ${p.kw} kW with overload, ${p.ip}`}),
+ sd:RW({name:p=>`Star-delta starter ${p.kw} kW`,depth:160,mount:1500,ways:()=>1,
+  w:p=>+p.kw<=11?245:+p.kw<=30?305:385,h:p=>+p.kw<=11?325:+p.kw<=30?405:505,
+  ...withP([{k:'kw',label:'Motor (kW)',type:'select',opts:[5.5,7.5,11,15,18.5,22,30,37,45,55,75]},
+   {k:'ip',label:'Protection',type:'select',opts:['IP55','IP65']}],{kw:15,ip:'IP55'}),
+  draw:(p,w,h)=>encl(w,h)
+   +`<rect x="${w*0.12}" y="${h*0.08}" width="${w*0.76}" height="${h*0.42}" rx="6" fill="#eceee9" stroke="#6f767c" stroke-width="2"/>`
+   +pbtn(w*0.33,h*0.24,16,'#2e9e4f')+pbtn(w*0.5,h*0.24,16,'#d81b1b')+pbtn(w*0.67,h*0.24,12,'#e8c21f')
+   +mt(w/2,h*0.44,'Y / Δ',Math.min(22,w*0.11),'#6b7075')
+   +mt(w/2,h*0.7,'STAR-DELTA',Math.min(21,w*0.12),'#454b50')+mt(w/2,h-9,`${p.kw} kW`,12,'#454b50'),
+  desc:p=>`Star-delta starter ${p.kw} kW, ${p.ip}`}),
+ vfd:RW({name:p=>`VFD ${p.kw} kW`,depth:200,mount:1500,ways:()=>1,
+  w:p=>+p.kw<=4?175:+p.kw<=15?225:285,h:p=>+p.kw<=4?255:+p.kw<=15?335:425,
+  ...withP([{k:'kw',label:'Drive (kW)',type:'select',opts:[0.75,1.5,2.2,4,5.5,7.5,11,15,22,30,45]},
+   {k:'supply',label:'Supply',type:'select',opts:['3φ 400 V','1φ 230 V']}],{kw:5.5,supply:'3φ 400 V'}),
+  draw:(p,w,h)=>encl(w,h,'#cfd3cd')
+   +`<rect x="${w*0.14}" y="${h*0.07}" width="${w*0.72}" height="${h*0.28}" rx="5" fill="#2f3337" stroke="#1d2023" stroke-width="2"/>`
+   +mt(w/2,h*0.25,'50.0 Hz',Math.min(23,w*0.15),'#7ee0a0')
+   +`<circle cx="${w/2}" cy="${h*0.52}" r="${Math.min(w,h)*0.11}" fill="#e8eae6" stroke="#6f767c" stroke-width="2"/>`
+   +mt(w/2,h*0.76,'VFD',Math.min(30,w*0.2),'#454b50')+mt(w/2,h-9,`${p.kw} kW`,12,'#454b50'),
+  desc:p=>`Variable frequency drive ${p.kw} kW, ${p.supply}`}),
+ motor:RW({name:p=>`${p.kind} ${p.kw} kW`,depth:220,mount:600,
+  w:p=>+p.kw<=4?270:+p.kw<=15?345:425,h:p=>+p.kw<=4?225:+p.kw<=15?285:345,
+  ...withP([{k:'kind',label:'Equipment',type:'select',opts:['Motor','Machine','Pump','Compressor','Welding set','Hoist','Extract fan','Water heater']},
+   {k:'kw',label:'Rating (kW)',type:'select',opts:[0.37,0.75,1.5,2.2,4,5.5,7.5,11,15,18.5,22,30,45]},
+   {k:'poles',label:'Supply',type:'select',opts:['3P','1P']},
+   {k:'conn',label:'Connection',type:'select',opts:['Flex outlet','Industrial socket','Direct / gland']}],{kind:'Motor',kw:4,poles:'3P',conn:'Flex outlet'}),
+  draw:(p,w,h)=>{const cx=w/2,cy=h*0.48,R=Math.min(w*0.28,h*0.34);
+   return `<rect x="${w*0.1}" y="${cy-h*0.3}" width="${w*0.8}" height="${h*0.6}" rx="12" fill="#b9bfc4" stroke="#6f767c" stroke-width="2.5"/>`
+    +`<rect x="${w*0.32}" y="${cy-h*0.43}" width="${w*0.36}" height="${h*0.15}" rx="4" fill="#8f979d" stroke="#6f767c" stroke-width="2"/>`
+    +`<circle cx="${cx}" cy="${cy}" r="${R}" fill="#f1f2ee" stroke="#4c5257" stroke-width="3"/>`
+    +mt(cx,cy+R*0.18,'M',R*1.05,'#2b2f33')
+    +mt(cx,cy+R*0.72,String(p.poles).startsWith('3')?'3~':'1~',R*0.42,'#6b7075')
+    +mt(cx,h-8,`${p.kind} ${p.kw} kW`,12,'#454b50')},
+  desc:p=>`${p.kind} ${p.kw} kW ${String(p.poles).startsWith('3')?'3-phase':'1-phase'} — ${p.conn}`}),
+ flood:RW({name:p=>`Flood light ${p.watt} W`,depth:220,mount:2500,
+  w:p=>({50:230,100:290,150:345,200:400}[p.watt]||290),h:p=>({50:180,100:220,150:260,200:300}[p.watt]||220),
+  ...withP([{k:'watt',label:'Output (W)',type:'select',opts:[50,100,150,200]},
+   {k:'ip',label:'Protection',type:'select',opts:['IP66','IP65']}],{watt:100,ip:'IP66'}),
+  draw:(p,w,h)=>`<rect x="3" y="3" width="${w-6}" height="${h-6}" rx="11" fill="#4c5257" stroke="#2f3337" stroke-width="3"/>`
+   +`<rect x="${w*0.08}" y="${h*0.09}" width="${w*0.84}" height="${h*0.62}" rx="7" fill="#fff6c8" stroke="#dcc46a" stroke-width="3"/>`
+   +`<rect x="${w*0.32}" y="${h*0.76}" width="${w*0.36}" height="${h*0.15}" rx="5" fill="#8f979d"/>`
+   +mt(w/2,h*0.46,p.watt+'W',Math.min(36,w*0.15),'#9a8d4a'),
+  desc:p=>`LED flood light ${p.watt} W ${p.ip}`}),
+ bulk:RW({name:'Bulkhead light',depth:95,mount:2300,w:230,h:230,round:true,
+  ...withP([{k:'watt',label:'Output (W)',type:'select',opts:[12,18,24,36]},
+   {k:'ip',label:'Protection',type:'select',opts:['IP65','IP54']}],{watt:18,ip:'IP65'}),
+  draw:(p,w,h)=>`<circle cx="${w/2}" cy="${h/2}" r="${w/2-3}" fill="#e6e7e3" stroke="#7d868c" stroke-width="3"/>`
+   +`<circle cx="${w/2}" cy="${h/2}" r="${w*0.37}" fill="#fff6c8" stroke="#dcc46a" stroke-width="3"/>`
+   +mt(w/2,h/2+w*0.05,p.watt+'W',w*0.13,'#8d8243'),
+  desc:p=>`Bulkhead light ${p.watt} W ${p.ip}`}),
+ emlt:RW({name:'Emergency light',depth:85,mount:2400,w:330,h:112,
+  ...withP([{k:'kind',label:'Type',type:'select',opts:['Non-maintained','Maintained']},
+   {k:'dur',label:'Duration',type:'select',opts:['3 h','1 h']}],{kind:'Non-maintained',dur:'3 h'}),
+  draw:(p,w,h)=>`<rect x="2" y="2" width="${w-4}" height="${h-4}" rx="8" fill="#eceee9" stroke="#7d868c" stroke-width="3"/>`
+   +[0.2,0.8].map(f=>`<circle cx="${w*f}" cy="${h/2}" r="${h*0.3}" fill="#fff6c8" stroke="#dcc46a" stroke-width="2.5"/>`).join('')
+   +`<rect x="${w*0.4}" y="${h*0.26}" width="${w*0.2}" height="${h*0.48}" rx="4" fill="#2e9e4f"/>`
+   +mt(w/2,h*0.62,'EM',h*0.3,'#ffffff'),
+  desc:p=>`Emergency light, ${p.kind.toLowerCase()}, ${p.dur}`}),
+ exitsg:RW({name:'Exit sign',depth:60,mount:2200,w:300,h:150,
+  ...withP([{k:'arrow',label:'Legend',type:'select',opts:['Right','Left','Ahead','Down']}],{arrow:'Right'}),
+  draw:(p,w,h)=>{const ar={Right:'→',Left:'←',Ahead:'↑',Down:'↓'}[p.arrow]||'→';
+   return `<rect x="2" y="2" width="${w-4}" height="${h-4}" rx="7" fill="#f4f6f3" stroke="#7d868c" stroke-width="3"/>`
+    +`<rect x="${w*0.06}" y="${h*0.12}" width="${w*0.88}" height="${h*0.76}" rx="5" fill="#2e9e4f"/>`
+    +mt(w*0.42,h*0.62,'EXIT',h*0.38,'#ffffff')+mt(w*0.8,h*0.64,ar,h*0.44,'#ffffff')},
+  desc:p=>`Exit sign, maintained, legend ${p.arrow.toLowerCase()}`}),
  // ceiling
+ hbay:RC({name:p=>`High bay ${p.watt} W`,round:true,model:'downlight',depth:260,
+  w:p=>({100:330,150:400,200:450,240:500}[p.watt]||400),h:p=>({100:330,150:400,200:450,240:500}[p.watt]||400),
+  ...withP([{k:'watt',label:'Output (W)',type:'select',opts:[100,150,200,240]},
+   {k:'fix',label:'Mounting',type:'select',opts:['Hook / chain','Suspended rod','Surface']}],{watt:150,fix:'Hook / chain'}),
+  draw:(p,w,h)=>{const c=w/2;let s=`<circle cx="${c}" cy="${c}" r="${w/2-3}" fill="#e3e5e1" stroke="#7d868c" stroke-width="3"/>`;
+   for(let i=3;i>=1;i--)s+=`<circle cx="${c}" cy="${c}" r="${(w/2-7)*i/3.3}" fill="none" stroke="#b9bdb8" stroke-width="3"/>`;
+   return s+`<circle cx="${c}" cy="${c}" r="${w*0.19}" fill="#fff4c4" stroke="#dcc46a" stroke-width="3"/>`
+    +mt(c,c+w*0.05,p.watt+'W',w*0.1,'#8d8243')},
+  desc:p=>`LED high bay ${p.watt} W (${p.fix})`}),
+ batten:RC({name:p=>`LED batten ${p.len} mm`,model:'panel',depth:70,
+  w:p=>+p.len,h:p=>p.twin==='yes'?150:82,
+  ...withP([{k:'len',label:'Length (mm)',type:'select',opts:[600,1200,1500,1800]},
+   {k:'twin',label:'Twin tube',type:'select',opts:['no','yes']},
+   {k:'ip',label:'Protection',type:'select',opts:['IP65','IP20']}],{len:1200,twin:'no',ip:'IP65'}),
+  draw:(p,w,h)=>{const n=p.twin==='yes'?2:1,bh=h/n;
+   let s=`<rect x="1.5" y="1.5" width="${w-3}" height="${h-3}" rx="9" fill="#e9eae6" stroke="#8d969c" stroke-width="3"/>`;
+   for(let i=0;i<n;i++)s+=tube(h*0.3,bh*i+bh*0.26,w-h*0.6,bh*0.48);
+   return s},
+  desc:p=>`LED batten ${p.len} mm, ${p.twin==='yes'?'twin':'single'}, ${p.ip}`}),
  dl:RC({name:p=>`Downlight Ø${p.dia}`,round:true,model:'downlight',depth:25,w:p=>+p.dia,h:p=>+p.dia,...withP([{k:'dia',label:'Diameter (mm)',type:'select',opts:[90,120,150,200]}],{dia:150}),
   draw:(p,w,h)=>`<circle cx="${w/2}" cy="${h/2}" r="${w/2-2}" fill="#e6e7e3" stroke="#8d969c" stroke-width="3"/><circle cx="${w/2}" cy="${h/2}" r="${w/2*0.72}" fill="#fff6c8" stroke="#e0c86a" stroke-width="2"/>`,desc:p=>`LED downlight Ø${p.dia}`}),
  ledp:RC({name:p=>`LED panel ${p.size}`,model:'panel',depth:15,w:p=>+p.size,h:p=>+p.size,...withP([{k:'size',label:'Size (mm)',type:'select',opts:[300,600]}],{size:600}),
@@ -1462,10 +1690,21 @@ const RDEFS={
 };
 const ROOM_LIB=[
  {tab:'Switches',groups:[{g:'Switches & controls',items:[['sw',{gang:1},'Switch 1G'],['sw',{gang:2},'Switch 2G'],['sw',{gang:3},'Switch 3G'],['sw',{gang:4},'Switch 4G'],['swb',{mods:6},'Switch board 6M'],['swb',{mods:12},'Switch board 12M'],['fanreg',{},'Fan regulator'],['ac',{},'AC isolator']]}]},
- {tab:'Sockets',groups:[{g:'Socket outlets',items:[['sk13',{},'Socket 13A'],['sk13',{twin:'yes'},'Twin 13A'],['skr',{amp:5},'Socket 5A'],['skr',{amp:15},'Socket 15A'],['tv',{kind:'TV'},'TV point'],['tv',{kind:'Data'},'Data point']]}]},
- {tab:'Lights & fans',groups:[{g:'Ceiling',items:[['dl',{},'Downlight'],['ledp',{},'LED panel'],['fan',{},'Ceiling fan'],['pend',{},'Pendant'],['smoke',{},'Smoke detector'],['jbc',{},'Junction box']]},{g:'Wall',items:[['wl',{},'Wall light'],['exh',{},'Exhaust fan']]}]},
+ {tab:'Sockets',groups:[
+  {g:'Socket outlets',items:[['sk13',{},'Socket 13A'],['sk13',{twin:'yes'},'Twin 13A'],['skr',{amp:5},'Socket 5A'],['skr',{amp:15},'Socket 15A'],['tv',{kind:'TV'},'TV point'],['tv',{kind:'Data'},'Data point']]},
+  {g:'Industrial — IEC 60309',items:[['isk',{poles:'1P',amp:16},'1P 16A'],['isk',{poles:'1P',amp:32},'1P 32A'],['isk',{poles:'3P',amp:16},'3P 16A'],['isk',{poles:'3P',amp:32},'3P 32A'],['isk',{poles:'3P',amp:63},'3P 63A'],['isk',{poles:'3P',amp:125},'3P 125A']]},
+  {g:'Weatherproof',items:[['skwp',{},'13A IP66'],['skwp',{twin:'yes'},'Twin 13A IP66']]}]},
+ {tab:'Industrial',groups:[
+  {g:'Isolation & switching',items:[['iso',{poles:'1P',amp:32},'Isolator 1P'],['iso',{poles:'2P',amp:32},'Isolator 2P'],['iso',{poles:'3P',amp:32},'Isolator 3P'],['iso',{poles:'4P',amp:63},'Isolator 4P'],['iso',{poles:'3P',amp:125},'Isolator 125A'],['estop',{},'E-stop'],['pbs',{btn:2},'Push-buttons']]},
+  {g:'Motor control',items:[['cont',{},'Contactor'],['dol',{},'DOL starter'],['sd',{},'Star-delta'],['vfd',{},'VFD drive']]},
+  {g:'Machines & motors',items:[['motor',{kind:'Motor'},'Motor 3P'],['motor',{kind:'Motor',poles:'1P',kw:1.5},'Motor 1P'],['motor',{kind:'Machine'},'Machine'],['motor',{kind:'Compressor',kw:7.5},'Compressor'],['motor',{kind:'Welding set',kw:11},'Welding set'],['motor',{kind:'Pump',kw:2.2},'Pump'],['motor',{kind:'Extract fan',kw:1.5},'Extract fan']]}]},
+ {tab:'Lights & fans',groups:[
+  {g:'Ceiling',items:[['dl',{},'Downlight'],['ledp',{},'LED panel'],['fan',{},'Ceiling fan'],['pend',{},'Pendant'],['smoke',{},'Smoke detector'],['jbc',{},'Junction box']]},
+  {g:'Wall',items:[['wl',{},'Wall light'],['exh',{},'Exhaust fan']]},
+  {g:'Industrial lighting',items:[['hbay',{},'High bay'],['batten',{},'Batten 1200'],['batten',{len:1500,twin:'yes'},'Twin batten'],['flood',{},'Flood light'],['bulk',{},'Bulkhead']]},
+  {g:'Escape lighting',items:[['emlt',{},'Emergency light'],['exitsg',{},'Exit sign']]}]},
  {tab:'Openings',groups:[{g:'Doors & windows',items:[['door',{},'Door 900'],['door',{width:800},'Door 800'],['win',{},'Window 1200'],['win',{width:1800,height:1200},'Window 1800']]}]},
- {tab:'Boards & boxes',groups:[{g:'Distribution',items:[['db',{ways:8},'DB 8-way'],['db',{ways:12},'DB 12-way'],['jbw',{},'Junction box']]}]}
+ {tab:'Boards & boxes',groups:[{g:'Distribution',items:[['db',{ways:8},'DB 8-way'],['db',{ways:12},'DB 12-way'],['db',{ways:24},'DB 24-way'],['db',{ways:48},'Board 48-way'],['jbw',{},'Junction box']]}]}
 ];
 function roomThumb(type,props){const it={type,props:Object.assign({},RDEFS[type].defaults,props)};const w=iw(it),h=ih(it),pad=Math.max(w,h)*0.08;
  let ex=0;if(type==='fan')ex=it.props.sweep/2-w/2;
@@ -1560,11 +1799,12 @@ function openRoomProps(id){const it=rfind(id);if(!it)return;const d=rdef(it),isW
   :`<label>From ${esc(surfName('D'))} (mm)<input name="x" type="number" inputmode="numeric" value="${Math.round(it.x)}"></label><label>From ${esc(surfName('A'))} (mm)<input name="y" type="number" inputmode="numeric" value="${Math.round(it.y)}"></label>`;
  /* Switching: one checkbox list per gang, over every light/fan in the
     room. Rendered inside the same form so one Apply saves the lot. */
- const nWays=waysOf(it),loads=loadsIn();
+ const nWays=waysOf(it),loads=drivablesIn(it),gear=CHAINABLE.has(it.type);
  const ctl=nWays?normControls(it.props.controls,nWays):[];
- const switching=!nWays?'':`<div class="swx"><b>Switching</b>${!loads.length?'<p class="muted">No lights or fans in the room yet.</p>':
-  ctl.map((row,i)=>`<div class="swx-w"><span class="swx-h">${nWays>1?'Gang '+(i+1):'Controls'}</span>${
-   loads.map(L=>`<label class="swx-c"><input type="checkbox" name="sw_${i}" value="${esc(L.id)}" ${row.includes(L.id)?'checked':''}>${esc(loadName(L))}</label>`).join('')}</div>`).join('')}</div>`;
+ const switching=!nWays?'':`<div class="swx"><b>${gear?'Feeds':'Switching'}</b>${!loads.length?`<p class="muted">Nothing in the room for this to ${gear?'feed':'switch'} yet.</p>`:
+  ctl.map((row,i)=>`<div class="swx-w"><span class="swx-h">${nWays>1?(gear?'Way ':'Gang ')+(i+1):(gear?'Feeds':'Controls')}</span>${
+   loads.map(L=>`<label class="swx-c"><input type="checkbox" name="sw_${i}" value="${esc(L.id)}" ${row.includes(L.id)?'checked':''}>${esc(loadName(L))}</label>`).join('')}</div>`).join('')}${
+  gear?'<p class="muted">Whatever you tick is fed from this, not straight off the board — so an isolator can feed a starter and the starter the motor. A point left on no circuit inherits this one\'s.</p>':''}</div>`;
  openModal(`<h3>${esc(rname(it))}</h3><form id="rpf">${surfSel}${pos}${fields}${switching}<p class="muted">${esc(d.desc?d.desc(it.props):'')}</p><div class="mact"><button type="button" class="bb" data-close>Cancel</button><button class="bb pri">Apply</button></div></form>`,box=>{
   box.querySelector('#rpf').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);pushUndo();
    for(const f of d.props){let v=fd.get('p_'+f.k);if(v==null)continue;if(f.type==='select'&&typeof f.opts[0]==='number')v=Number(v);it.props[f.k]=v}
@@ -1588,7 +1828,7 @@ function openCircuits(){
   const brs=panelBreakers(),dupe=new Map();
   cs.forEach(c=>{if(c.breaker)dupe.set(c.breaker,(dupe.get(c.breaker)||0)+1)});
   const many=roomPanels().length>1;
-  const rows=cs.map(c=>{const n=circuitItems(c.id).length,nAll=circuitItemsAll(c.id).length,b=breakerById(c.breaker),warn=cableWarn(c),own=panelOfCircuit(c.id);
+  const rows=cs.map(c=>{const n=circuitItems(c.id).length,nAll=circuitItemsAll(c.id).length,b=breakerById(c.breaker),warn=cableWarn(c),pwarn=phaseWarn(c),own=panelOfCircuit(c.id);
    return `<div class="cct">
     ${many&&own?`<span class="cct-own">${esc(own.name)}</span>`:''}
     <div class="cct-l"><input name="n_${c.id}" value="${esc(c.name)}" maxlength="24" autocomplete="off" placeholder="Circuit name">
@@ -1597,10 +1837,12 @@ function openCircuits(){
       ?`<label class="cct-f">MCB<span class="cct-ro">${esc(breakerText(b))}</span></label>`
       :`<label class="cct-f">MCB<input name="m_${c.id}" value="${esc(c.mcb)}" maxlength="8" autocomplete="off" placeholder="B10"></label>`}
      <label class="cct-f">Cable mm²<select name="c_${c.id}">${CABLE_SIZES.map(s=>`<option value="${s}" ${+c.cable===s?'selected':''}>${s}</option>`).join('')}</select></label>
+     <label class="cct-f">Phase<select name="f_${c.id}">${PHASES.map(([v,l])=>`<option value="${v}" ${circuitPhase(c)===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
      <span class="cct-n">${n} point${n===1?'':'s'}${nAll>n?` · ${nAll} in project`:''}</span></div>
     <label class="cct-f cct-br">Breaker on the panel<select name="b_${c.id}"><option value="">— not linked —</option>${
      brs.map(x=>`<option value="${esc(x.id)}" ${x.id===c.breaker?'selected':''}>${esc(breakerLabel(x))}</option>`).join('')}</select></label>
     ${c.breaker&&dupe.get(c.breaker)>1?`<p class="cct-warn">This breaker is also used by another circuit.</p>`:''}
+    ${pwarn?`<p class="cct-warn">${esc(pwarn)}</p>`:''}
     ${warn?`<p class="cct-warn">${esc(warn)}</p>`:''}</div>`}).join('');
   openModal(`<h3>Circuits</h3><form id="ccf">
    ${rows||'<p class="muted">No circuits yet — add the first one below.</p>'}
@@ -1612,7 +1854,7 @@ function openCircuits(){
       room's DB points at, falling back to the one being edited. */
    box.querySelector('#cAdd').onclick=()=>{const target=roomPanels()[0]||curPanel();
     if(!target)return toast('Add a panel first');
-    pushUndo();target.circuits.push({id:uid(),name:'Circuit '+(scope().flatMap(x=>x.circuits||[]).length+1),mcb:'B10',cable:1.5,breaker:''});save();draw()};
+    pushUndo();target.circuits.push({id:uid(),name:'Circuit '+(scope().flatMap(x=>x.circuits||[]).length+1),mcb:'B10',cable:1.5,breaker:'',phase:'1'});save();draw()};
    /* Panels are usually labelled with the same circuit names, so one tap
       links the obvious ones. Only fills blanks — never moves a link the
       user set by hand — and won't give one breaker to two circuits. */
@@ -1632,17 +1874,17 @@ function openCircuits(){
     save();draw()});
    /* Re-render on link change so the MCB column switches between the
       typed value and the linked breaker's own rating. */
+   /* One reader for both the re-render on link change and the final
+      Save, or a field added to the form lands in one and not the other. */
+   const readRows=fd=>{for(const c of scope().flatMap(x=>x.circuits||[])){
+    const nm=String(fd.get('n_'+c.id)??c.name).trim();c.name=nm||c.name;
+    if(fd.get('m_'+c.id)!=null)c.mcb=String(fd.get('m_'+c.id)).trim();
+    c.cable=+fd.get('c_'+c.id)||c.cable;c.breaker=String(fd.get('b_'+c.id)||'');
+    c.phase=fd.get('f_'+c.id)==='3'?'3':'1'}};
    box.querySelectorAll('select[name^="b_"]').forEach(s=>s.onchange=()=>{
-    const fd=new FormData(box.querySelector('#ccf'));pushUndo();
-    for(const c of scope().flatMap(x=>x.circuits||[])){const nm=String(fd.get('n_'+c.id)??c.name).trim();
-     c.name=nm||c.name;if(fd.get('m_'+c.id)!=null)c.mcb=String(fd.get('m_'+c.id)).trim();
-     c.cable=+fd.get('c_'+c.id)||c.cable;c.breaker=String(fd.get('b_'+c.id)||'')}
-    save();draw()});
-   box.querySelector('#ccf').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);pushUndo();
-    for(const c of scope().flatMap(x=>x.circuits||[])){const nm=String(fd.get('n_'+c.id)??c.name).trim();
-     c.name=nm||c.name;if(fd.get('m_'+c.id)!=null)c.mcb=String(fd.get('m_'+c.id)).trim();
-     c.cable=+fd.get('c_'+c.id)||c.cable;c.breaker=String(fd.get('b_'+c.id)||'')}
-    closeModal();roomCommit()}})};
+    pushUndo();readRows(new FormData(box.querySelector('#ccf')));save();draw()});
+   box.querySelector('#ccf').onsubmit=e=>{e.preventDefault();pushUndo();
+    readRows(new FormData(e.target));closeModal();roomCommit()}})};
  draw()}
 /* ---------- rooms: switch, add, duplicate, delete ---------- */
 function switchRoom(id){if(!S.rooms.some(r=>r.id===id))return;
@@ -1724,7 +1966,9 @@ function roomBOMRows(){const rooms=Array.isArray(S.rooms)?S.rooms:[];if(!rooms.l
   const tag=many?`${R.name}: `:'Room: ';
   for(const it of R.items){const d=rdef(it);if(d.opening)continue;
    const k=tag+(d.desc?d.desc(it.props):rname(it));m.set(k,(m.get(k)||0)+1)}
-  for(const r of roomRuns()){const k=`${many?R.name:'Room'} cable: ${r.circuit.cable} mm² — ${r.circuit.name}`;cm.set(k,(cm.get(k)||0)+r.len)}
+  /* Core count is part of what you order, so a 3φ circuit is called
+     out as one — 4 mm² 5-core is not the same thing as 4 mm² 3-core. */
+  for(const r of roomRuns()){const k=`${many?R.name:'Room'} cable: ${r.circuit.cable} mm² ${circuitPhase(r.circuit)==='3'?'5-core (3φ)':'3-core (1φ)'} — ${r.circuit.name}`;cm.set(k,(cm.get(k)||0)+r.len)}
   cd+=conduitLen()});
  const rows=[...m].sort().map(([k,q])=>[k,q,'pcs']);
  rows.push(...[...cm].sort().map(([k,L])=>[k,(L/1000*1.1).toFixed(2),'m']));
@@ -1904,7 +2148,7 @@ function build3D(){const t=T3;if(!t)return;const Rm=RM(),T=Rm.t;
   for(const r of roomRuns()){const lit=sel&&(r.item.id===sel.id||r.from.id===sel.id||r.circuit.id===effCircuitId(sel));
    const v=r.pts.map(nudge).map(p=>new THREE.Vector3(p[0],p[1],p[2]));
    const g=new THREE.BufferGeometry().setFromPoints(v);
-   wires.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:r.kind==='switched'?0xe9b800:0xd62828,transparent:true,opacity:lit?1:.6})))}
+   wires.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:RUN_HEX[r.kind]||RUN_HEX.feed,transparent:true,opacity:lit?1:.6})))}
   t.root.add(wires);t.wires=wires}
  const s=rsel&&rfind(rsel);if(s){const o=t.wallItems[s.surf].children.find(c=>c.userData.rid===s.id);if(o){t.selBox=new THREE.BoxHelper(o,0x0a84ff);t.root.add(t.selBox)}}}
 function wallFacesCamera(W,cam){const n=V(W.n),o=V(W.o);return n.dot(cam.clone().sub(o))>0}
@@ -1972,22 +2216,28 @@ function roomSheet(asSvg){
  o+=txt(GAP,250,`${Rm.name} — electrical elevations`,110,'#1c1c1e',700,'start');
  o+=txt(GAP,370,`${(Rm.w/1000).toFixed(2)} × ${(Rm.l/1000).toFixed(2)} × ${(Rm.h/1000).toFixed(2)} m · all dimensions mm · DB Panel Designer v${APP_VERSION}`,62,'#6b7075',500,'start');
  /* Key, or red vs yellow on the drawings is anyone's guess. */
- if(settings.rwire!==false){const ky=450;let kx=GAP;
-  [[RUN_COLOR.feed,'Live feed — board to switch / socket'],[RUN_COLOR.switched,'Switched live — switch to light / fan']].forEach(([col,lbl])=>{
-   o+=`<line x1="${kx}" y1="${ky-18}" x2="${kx+120}" y2="${ky-18}" stroke="${col}" stroke-width="12" stroke-linecap="round"/>`;
-   o+=txt(kx+150,ky,lbl,54,'#6b7075',500,'start');kx+=1500});}
+ if(settings.rwire!==false){const ky=450,used=new Set(runs.map(r=>r.kind));
+  /* Orange only appears once there is control gear in the room, so a
+     domestic sheet keeps the two-colour key it had. */
+  const K=[['feed','Live feed — board to switch, socket or control gear'],
+   ['switched','Switched live — switch to light / fan'],
+   ['load','Load side — isolator / starter to machine']].filter(([k])=>k==='feed'||used.has(k));
+  const step=Math.max(1200,Math.min(1500,(W-2*GAP)/K.length));let kx=GAP;
+  K.forEach(([k,lbl])=>{
+   o+=`<line x1="${kx}" y1="${ky-18}" x2="${kx+120}" y2="${ky-18}" stroke="${RUN_COLOR[k]}" stroke-width="12" stroke-linecap="round"/>`;
+   o+=txt(kx+150,ky,lbl,54,'#6b7075',500,'start');kx+=step});}
  let y=HEAD;
  rows.forEach((row,ri)=>{row.forEach((c,ci)=>{const x=GAP+ci*(colW+GAP);
   o+=txt(x,y-40,c.k==='ceil'?'Ceiling (plan, looking down)':`${surfName(c.k)} (elevation, from inside)`,70,'#1c1c1e',700,'start');
   o+=`<g transform="translate(${x+PAD},${y+TOP})" font-family="Arial,Helvetica,sans-serif">${c.svg}</g>`});
   y+=rowH[ri]+GAP});
  if(cs.length){o+=txt(GAP,y-40,'Circuits',70,'#1c1c1e',700,'start');
-  const cw=[760,420,420,360,460];let cx=GAP;
-  ['Circuit','MCB','Cable','Points','Cable length'].forEach((h,i)=>{o+=txt(cx,y+70,h,58,'#6b7075',700,'start');cx+=cw[i]});
+  const cw=[760,420,300,420,360,460];let cx=GAP;
+  ['Circuit','MCB','Phase','Cable','Points','Cable length'].forEach((h,i)=>{o+=txt(cx,y+70,h,58,'#6b7075',700,'start');cx+=cw[i]});
   o+=`<line x1="${GAP}" y1="${y+100}" x2="${GAP+cw.reduce((a,b)=>a+b,0)}" y2="${y+100}" stroke="#c9c3b6" stroke-width="4"/>`;
   cs.forEach((c,i)=>{const ry=y+180+i*105;let x2=GAP;
    const L=(perC.get(c.id)||0)/1000*1.1;
-   [c.name,circuitMcb(c)||'—',c.cable+' mm²',String(circuitItems(c.id).length),L?L.toFixed(2)+' m':'—']
+   [c.name,circuitMcb(c)||'—',phaseLabel(c),c.cable+' mm²',String(circuitItems(c.id).length),L?L.toFixed(2)+' m':'—']
     .forEach((v,j)=>{o+=txt(x2,ry,v,62,'#1c1c1e',j?500:700,'start');x2+=cw[j]})})}
  const nm=`${fname()}-${(Rm.name||'room').replace(/[^\w\- ]+/g,'').replace(/\s+/g,'-')}-elevations`;
  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(W/4)}" height="${Math.round(H/4)}" viewBox="0 0 ${W} ${H}"><g font-family="Arial,Helvetica,sans-serif">${o}</g></svg>`;

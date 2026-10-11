@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.10.1';
+const APP_VERSION='2.11.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -254,7 +254,9 @@ function migratePanel(p,i){
     whichever board its DB points at, so there is one owner and nothing
     to keep in sync. */
  const circuits=(Array.isArray(p.circuits)?p.circuits:[]).filter(c=>c&&c.name)
-  .map(c=>({id:String(c.id||uid()),name:String(c.name).trim()||'Circuit',mcb:String(c.mcb||'').trim(),cable:+c.cable||1.5,breaker:String(c.breaker||'')}));
+  .map(c=>({id:String(c.id||uid()),name:String(c.name).trim()||'Circuit',mcb:String(c.mcb||'').trim(),cable:+c.cable||1.5,breaker:String(c.breaker||''),
+   /* Phase arrived in 2.11; everything before it was single-phase. */
+   phase:c.phase==='3'?'3':'1'}));
  return {id:String(p.id||uid()),name:String(p.name||`Panel ${i+1}`).trim()||`Panel ${i+1}`,items,wires,layers:L,defs,circuits}}
 /**
  * S.items / S.wires / S.layers / S.defs are accessors onto the CURRENT
