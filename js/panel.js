@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.7.0';
+const APP_VERSION='2.8.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -61,6 +61,19 @@ const OUTPH={2:['L','N'],3:['L','N','PE'],4:['L1','L2','L3','PE'],5:['L1','L2','
 const RD=o=>Object.assign({rail:true,occupy:true,z:3,screw:8,props:[],defaults:{}},o);
 const FR=o=>Object.assign({rail:false,z:2,screw:0,props:[],defaults:{},terms:()=>[]},o);
 const parseEncl=s=>{const m=String(s).split(/[x×]/).map(Number);return {w:(m[0]||600)*2,h:(m[1]||800)*2}};
+/* Enclosure presets: generic boxes, plus typical consumer-unit sizes
+   by way count derived from DIN geometry (18 mm a module, plus room
+   for the rail and glands). The way-count ones are a starting point to
+   check a real enclosure against — not a manufacturer's spec. */
+const ENCL_SIZES=['200×300','300×400','400×500','400×600','500×700','600×800','800×1000','800×1200'];
+const ENCL_WAYS=[[4,'160×250'],[6,'215×250'],[8,'270×250'],[12,'380×250'],[16,'490×250'],[18,'545×250'],[24,'380×420']];
+const ENCL_OPTS=[...ENCL_SIZES,...ENCL_WAYS.map(([n,s])=>`${s} (${n}-way)`),'Custom'];
+/** mm W×H of an enclosure's props, in drawing units (2 px = 1 mm).
+ *  Strips any "(n-way)" tail so parseEncl only ever sees "W×H". */
+const enclDims=p=>p.size==='Custom'
+ ? {w:Math.max(50,+p.cw||300)*2,h:Math.max(50,+p.ch||400)*2}
+ : parseEncl(String(p.size).replace(/\s*\(.*$/,''));
+const enclLabel=p=>p.size==='Custom'?`${Math.max(50,+p.cw||300)}×${Math.max(50,+p.ch||400)}`:String(p.size);
 
 const DEFS={
  mcb:RD({name:p=>`MCB ${p.poles}P`,defaults:{poles:1,rating:16,curve:'C',label:''},
@@ -133,11 +146,14 @@ const DEFS={
    const n=Math.max(1,Math.floor((w-24)/68)),gap=(w-n*46)/(n+1);for(let i=0;i<n;i++)s+=`<rect x="${gap+i*(46+gap)}" y="${h/2-7}" width="46" height="14" rx="7" fill="#f3f1ea" stroke="#7d858a"/>`;
    if(p.label)s+=txt(6,7.5,p.label,8,'#3a4046',700,'start');return s},
   desc:p=>`DIN rail TS35, ${p.mod} modules (${p.mod*18+14} mm)`}),
- encl:FR({name:p=>`Enclosure ${p.size}`,z:0,showLabel:false,needSel:true,defaults:{size:'600×800',label:'DB-1'},
-  props:[{k:'size',label:'Size W×H (mm)',type:'select',opts:['300×400','400×500','400×600','500×700','600×800','800×1000','800×1200']},{k:'label',label:'Panel name',type:'text'}],
-  size:p=>parseEncl(p.size),
-  draw:(p,w,h)=>`<rect x="0" y="0" width="${w}" height="${h}" rx="18" fill="#e4e7ea" stroke="#9aa3aa" stroke-width="3" style="pointer-events:none"/><rect x="26" y="26" width="${w-52}" height="${h-52}" rx="6" fill="#f7f6f1" stroke="#c4cacf" stroke-width="2" style="pointer-events:none"/><rect x="13" y="13" width="${w-26}" height="${h-26}" rx="12" fill="none" stroke="#000" stroke-opacity="0" stroke-width="26" style="pointer-events:stroke"/>`+txt(w/2,18,`${p.label||''}  ·  ${p.size} mm`,11,'#59626a'),
-  desc:p=>`Enclosure ${p.size} mm${p.label?' ('+p.label+')':''}`}),
+ encl:FR({name:p=>`Enclosure ${enclLabel(p)}`,z:0,showLabel:false,needSel:true,defaults:{size:'600×800',cw:300,ch:400,label:'DB-1'},
+  props:[{k:'size',label:'Size W×H (mm)',type:'select',opts:ENCL_OPTS},
+   {k:'cw',label:'Custom width (mm) — used when Size is Custom',type:'number'},
+   {k:'ch',label:'Custom height (mm) — used when Size is Custom',type:'number'},
+   {k:'label',label:'Panel name',type:'text'}],
+  size:p=>enclDims(p),
+  draw:(p,w,h)=>`<rect x="0" y="0" width="${w}" height="${h}" rx="18" fill="#e4e7ea" stroke="#9aa3aa" stroke-width="3" style="pointer-events:none"/><rect x="26" y="26" width="${w-52}" height="${h-52}" rx="6" fill="#f7f6f1" stroke="#c4cacf" stroke-width="2" style="pointer-events:none"/><rect x="13" y="13" width="${w-26}" height="${h-26}" rx="12" fill="none" stroke="#000" stroke-opacity="0" stroke-width="26" style="pointer-events:stroke"/>`+txt(w/2,18,`${p.label||''}  ·  ${enclLabel(p)} mm`,11,'#59626a'),
+  desc:p=>`Enclosure ${enclLabel(p)} mm${p.label?' ('+p.label+')':''}`}),
  busbar:FR({name:p=>`${p.kind==='PE'?'Earth':'Neutral'} bar ${p.holes}`,screw:7,defaults:{kind:'N',holes:8,face:'up',label:''},
   props:[{k:'kind',label:'Type',type:'select',opts:['N','PE']},{k:'holes',label:'Ways',type:'select',opts:[4,6,8,10,12,16,20]},{k:'face',label:'Wire entry',type:'select',opts:['up','down']},P_LABEL],
   size:p=>({w:p.holes*22+32,h:30}),terms:(p,w,h)=>Array.from({length:p.holes},(_,i)=>({id:'h'+i,x:27+i*22,y:15,dir:p.face==='down'?1:-1,ph:p.kind})),
@@ -613,7 +629,7 @@ function openProps(id){const it=find(id);if(!it)return;const d=D(it);
 function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="projects">Projects <small>${esc(S.name)}</small></button>
  <button data-m="mode">${appMode==='room'?'Panel designer':'Room designer'} <small>switch</small></button>${appMode==='room'?'<button data-m="roomset">Room settings <small>size, wall names</small></button>':''}
- <button data-m="bom">Bill of materials <small>BOM & rail usage</small></button>${appMode==='room'?'<button data-m="sheet">Elevations sheet <small>all walls + ceiling, one page</small></button>':''}
+ <button data-m="bom">Bill of materials <small>BOM & rail usage</small></button>${appMode==='room'?'<button data-m="sheet">Elevations sheet <small>all walls + ceiling, one page</small></button>':'<button data-m="encl">Panel size &amp; fit <small>enclosure, does it fit</small></button>'}
  <button data-m="png">Export image <small>PNG</small></button>
  <button data-m="svg">Export drawing <small>SVG</small></button>
  <button data-m="json">Export project <small>.json</small></button>
@@ -625,7 +641,7 @@ function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="help">How to use</button>
  <button data-m="about">About <small>v${APP_VERSION}</small></button></div><div class="mact"><button class="bb" data-close>Close</button></div>`,box=>{
  box.querySelector('.mlist').onclick=e=>{const b=e.target.closest('[data-m]');if(!b)return;const m=b.dataset.m;closeModal();
-  ({projects:openProjects,mode:()=>setAppMode(appMode==='room'?'panel':'room'),roomset:()=>openRoomSettings(),bom:openBOM,sheet:()=>roomSheet(),png:()=>appMode==='room'?roomExport():exportPNG(),svg:()=>appMode==='room'?roomExport(true):shareOrDownload(new Blob([exportSVG().svg],{type:'image/svg+xml'}),fname()+'.svg'),json:exportJSON,import:()=>$('#fileIn').click(),
+  ({projects:openProjects,mode:()=>setAppMode(appMode==='room'?'panel':'room'),roomset:()=>openRoomSettings(),bom:openBOM,sheet:()=>roomSheet(),encl:openEncl,png:()=>appMode==='room'?roomExport():exportPNG(),svg:()=>appMode==='room'?roomExport(true):shareOrDownload(new Blob([exportSVG().svg],{type:'image/svg+xml'}),fname()+'.svg'),json:exportJSON,import:()=>$('#fileIn').click(),
    clearw:()=>{if(!S.wires.length)return toast('No wires');if(confirm('Remove all wires?')){pushUndo();S.wires=[];sel=[];commit()}},layers:()=>toggleLayers(true),
    rerouteall:()=>{if(!S.wires.some(w=>w.path))return toast('All wires are already auto-routed');pushUndo();S.wires.forEach(w=>delete w.path);commit();toast('Wires re-routed')},settings:openSettings,help:openHelp,
    about:()=>openModal(`<h3>DB Panel Designer</h3><p class="muted">Version ${APP_VERSION}<br>Panel + room designer · works offline · data stored on this device.<br>3D by three.js (MIT).</p><div class="mact"><button class="bb pri" data-close>OK</button></div>`)})[m]()}})}
@@ -693,6 +709,45 @@ function exportJSON(){const o={app:'db-panel-designer',appVersion:APP_VERSION,sc
 $('#fileIn').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{const o=JSON.parse(await f.text());if(!Array.isArray(o.items)||!Array.isArray(o.wires))throw 0;newProject({...o,name:(o.name||'Imported panel')+''});toast('Project imported')}catch(_){toast('Not a valid panel project file')}};
 
 /* ---------- BOM ---------- */
+/* ---------- enclosure fit ----------
+   Answers "will this design actually go in that box?" — everything is
+   already positioned in drawing units (2 px = 1 mm), so the check is a
+   bounding-box comparison against the enclosure's inner face. */
+const ENCL_INNER=26;                                   // the drawn inner lip, in drawing units
+function enclFit(){const boxes=S.items.filter(i=>i.type==='encl');
+ if(!boxes.length)return {none:true};
+ const box=boxes[0],bp=pos(box),bs=size(box);
+ const inner={x1:bp.x+ENCL_INNER,y1:bp.y+ENCL_INNER,x2:bp.x+bs.w-ENCL_INNER,y2:bp.y+bs.h-ENCL_INNER};
+ const out=[];let used=0,cap=0;
+ for(const it of S.items){
+  if(it.type==='encl')continue;
+  const p=pos(it),s=size(it);
+  const over=Math.max(0,inner.x1-p.x,p.x+s.w-inner.x2),ov=Math.max(0,inner.y1-p.y,p.y+s.h-inner.y2);
+  if(over>0.5||ov>0.5)out.push({it,dx:Math.round(over/2),dy:Math.round(ov/2)});
+  if(it.type==='rail'){cap+=it.props.mod;
+   used+=S.items.filter(c=>c.rail===it.id&&D(c).occupy).reduce((a,c)=>a+D(c).units(c.props),0)/2}}
+ return {box,w:Math.round(bs.w/2),h:Math.round(bs.h/2),
+  innerW:Math.round((inner.x2-inner.x1)/2),innerH:Math.round((inner.y2-inner.y1)/2),
+  out,used,cap,extra:boxes.length-1}}
+function openEncl(){const f=enclFit();
+ if(f.none)return toast('Add an enclosure from the Components sheet first');
+ const p=f.box.props;
+ const list=f.out.slice(0,8).map(o=>`<tr><td>${esc(D(o.it).name(o.it.props))}${o.it.props.label?' · '+esc(o.it.props.label):''}</td><td class="n">${[o.dx?o.dx+' mm wide':'',o.dy?o.dy+' mm tall':''].filter(Boolean).join(', ')}</td></tr>`).join('');
+ openModal(`<h3>Panel size &amp; fit</h3><form id="ef">
+  <label>Enclosure<select name="size">${ENCL_OPTS.map(o=>`<option value="${esc(o)}" ${o===p.size?'selected':''}>${esc(o)}${ENCL_SIZES.includes(o)?' mm':''}</option>`).join('')}</select></label>
+  <div class="cct-l"><label class="cct-f" style="flex:1">Custom width (mm)<input name="cw" type="number" inputmode="numeric" value="${esc(p.cw||300)}"></label>
+   <label class="cct-f" style="flex:1">Custom height (mm)<input name="ch" type="number" inputmode="numeric" value="${esc(p.ch||400)}"></label></div>
+  <p class="muted">Custom is used only when Size is set to Custom. Way-count sizes are typical, worked from DIN module geometry — check them against the enclosure you are actually buying.</p>
+  <p class="${f.out.length?'cct-warn':'muted'}">${f.out.length
+   ? `<b>Does not fit.</b> ${f.out.length} part${f.out.length===1?'':'s'} outside the ${f.innerW}×${f.innerH} mm usable area${f.out.length>8?' (first 8 shown)':''}:`
+   : `<b>Fits.</b> Everything is inside the ${f.innerW}×${f.innerH} mm usable area of a ${f.w}×${f.h} mm box.`}</p>
+  ${list?`<table class="bom"><tr><th>Part</th><th class="n">Outside by</th></tr>${list}</table>`:''}
+  ${f.cap?`<p class="muted">Rails: ${f.used} of ${f.cap} modules used, ${f.cap-f.used} free.</p>`:''}
+  ${f.extra>0?`<p class="cct-warn">This design has ${f.extra+1} enclosures; the fit check uses the first.</p>`:''}
+  <div class="mact"><button type="button" class="bb" data-close>Close</button><button class="bb pri">Apply size</button></div></form>`,box=>{
+  box.querySelector('#ef').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);pushUndo();
+   p.size=String(fd.get('size'));p.cw=Number(fd.get('cw'))||p.cw;p.ch=Number(fd.get('ch'))||p.ch;
+   closeModal();commit();const r=enclFit();toast(r.out.length?`${r.out.length} part${r.out.length===1?'':'s'} outside the box`:'Everything fits')}})}
 function openBOM(){const m=new Map();for(const it of S.items){const d=D(it);if(!d.desc)continue;const k=d.desc(it.props);m.set(k,(m.get(k)||0)+1)}
  const wm=new Map();for(const w of S.wires){const L=wireLen(w);if(L==null)continue;const k=`Wire ${w.size} mm² ${COLOR_NAME[wireColor(w)]||'Custom'}`;wm.set(k,(wm.get(k)||0)+L)}
  const rows=[...m].sort().map(([k,q])=>[k,q,'pcs']).concat([...wm].sort().map(([k,L])=>[k,(L/2000*1.15).toFixed(2),'m']));

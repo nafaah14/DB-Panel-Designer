@@ -1,4 +1,4 @@
-# DB Panel Designer — v2.7.0
+# DB Panel Designer — v2.8.0
 
 Phone-first designer for **DB panels** (DIN rails, breakers, busbars, wiring) and **room electrical layouts** (switches, sockets, lights, fans) with a 3D view. Vanilla JS, works offline, data saved on the device.
 
@@ -30,6 +30,7 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 ### Panel designer
 - Library: MCB 1P–4P, MCB 1P+N, RCD 2P/4P, RCBO, main switch, SPD, contactor, voltage relay, kWh meter 1φ/3φ, indicator lamp
 - 35 mm DIN rails (6–48 modules) with module snapping and collision checks; enclosures
+- **Panel size & fit** (2.8) — Menu → Panel size & fit: pick a generic enclosure, a typical consumer-unit size by way count, or type a custom W×H, and it tells you whether the design actually fits, naming anything outside the usable area and by how much, plus modules used vs free
 - Earth/neutral bars, comb busbars, terminal blocks, incoming supply and outgoing cables
 - Wiring: obstacle-avoiding orthogonal auto-routing with lane spreading; manual reshaping with multiple bends
 - Layers: add/rename/reorder/delete, show/hide, lock, default layer for new parts and new wires, move parts or wires between layers
@@ -38,6 +39,7 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 - Bill of materials with wire lengths (+15%) and rail usage, CSV export
 
 ## Changelog
+- 2.8.0 — **Panel size and a fit check.** The enclosure takes a custom W×H as well as presets, and the preset list now includes typical consumer-unit sizes by way count (4–24), worked from DIN module geometry. Menu → Panel size & fit reports whether the design fits the box, naming each part outside the usable area and by how much, with rail modules used vs free. Way-count sizes are a starting point to check a real enclosure against, not a manufacturer's spec
 - 2.7.0 — **Wiring follows the real topology.** Cables no longer all run radially to the board: the DB feeds switches and sockets (live, red) and a switch feeds the lights and fans assigned to its gangs (switched live, yellow). A light with no circuit of its own inherits the circuit of the switch driving it; one not on any switch still gets a direct feed. Conductor colour is now meaning rather than decoration, so selecting a circuit changes line weight instead of hue, and the elevations sheet carries a key
 - 2.6.0 — v3, part 3: **multiple rooms per project**. A project holds a list of rooms (🏠 Rooms — switch, add, rename, duplicate, delete) all sharing one panel, so a circuit in any room can point at its breakers. Duplicating a room deep-copies it with fresh ids and remaps its circuit and switch→load links onto the copy. The bill of materials covers every room, prefixed by room name. Single-room projects from 2.5 and earlier are wrapped into the list on load with nothing lost
 - 2.5.0 — v3, part 2: **elevations sheet**. Menu → Elevations sheet puts all four walls and the ceiling on one page with a title block and a circuits table (MCB, cable, points, cable length), as PNG or SVG. Each surface is captured by pointing the normal drawing code at it, so the sheet always matches what the editor shows; the editor’s own surface, zoom and selection are restored afterwards
