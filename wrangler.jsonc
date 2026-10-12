@@ -1,19 +1,32 @@
 {
   // Explicit Cloudflare config so the deploy stops auto-detecting and
-  // prompting. This app has no build step: index.html and its css/js/vendor
+  // prompting. The site has no build step: index.html and its css/js/vendor
   // folders are served exactly as they sit in the repo, which is why the
   // assets directory is the repo root rather than a dist/ folder.
   //
   // What is NOT uploaded is listed in .assetsignore — above all node_modules,
   // which wrangler creates here for itself during the deploy and which would
   // otherwise blow the 25 MiB per-asset limit.
+  //
+  // Cloud sync (2.13): worker/index.js answers /api/* only; every other
+  // request is served straight from the assets without touching the Worker.
+  // Each account is one SQLite-backed Durable Object (UserStore). The
+  // migration below is applied by the deploy itself — there is nothing to
+  // create in the dashboard. Optional secret/variable: INVITE_CODE.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "db-panel-designer",
+  "main": "worker/index.js",
   "compatibility_date": "2026-10-06",
   "observability": {
     "enabled": true
   },
   "assets": {
-    "directory": "."
-  }
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "USER", "class_name": "UserStore" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["UserStore"] }]
 }

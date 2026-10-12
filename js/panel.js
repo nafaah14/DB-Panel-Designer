@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.12.0';
+const APP_VERSION='2.13.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -17,7 +17,7 @@ const LS_P='pdes.projects.v1', LS_C='pdes.current', LS_SET='pdes.settings';
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
 function lsSet(k,v){try{localStorage.setItem(k,v);return true}catch(e){return false}}
 function loadProjects(){try{return JSON.parse(lsGet(LS_P))||{}}catch(e){return {}}}
-function saveProjects(P){if(!lsSet(LS_P,JSON.stringify(P)))toast('Could not save — storage unavailable or full')}
+function saveProjects(P){if(!lsSet(LS_P,JSON.stringify(P)))toast('Could not save — storage unavailable or full');else if(typeof cloudChanged==='function')cloudChanged()}
 let settings=Object.assign({mode:'panel',scheme:'redblue',snap:true,labels:true,wireColor:'auto',wireSize:2.5},(()=>{try{return JSON.parse(lsGet(LS_SET))||{}}catch(e){return {}}})());
 function saveSettings(){lsSet(LS_SET,JSON.stringify(settings))}
 
@@ -731,14 +731,15 @@ function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="layers">Layers <small>${S.layers.length}</small></button>
  <button data-m="rerouteall">Auto-route all wires <small>resets manual paths</small></button>
  <button data-m="clearw">Remove all wires</button>
+ <button data-m="account">Account <small>${esc(cloudMenuHint())}</small></button>
  <button data-m="settings">Settings${updAvailable()?'<small class="uh">update available</small>':''}</button>
  <button data-m="help">How to use</button>
  <button data-m="about">About <small>v${APP_VERSION}</small></button></div><div class="mact"><button class="bb" data-close>Close</button></div>`,box=>{
  box.querySelector('.mlist').onclick=e=>{const b=e.target.closest('[data-m]');if(!b)return;const m=b.dataset.m;closeModal();
   ({projects:openProjects,mode:()=>setAppMode(appMode==='room'?'panel':'room'),roomset:()=>openRoomSettings(),bom:openBOM,sheet:()=>roomSheet(),encl:openEncl,panels:openPanels,cct:openCircuits,png:()=>appMode==='room'?roomExport():exportPNG(),svg:()=>appMode==='room'?roomExport(true):shareOrDownload(new Blob([exportSVG().svg],{type:'image/svg+xml'}),fname()+'.svg'),json:exportJSON,import:()=>$('#fileIn').click(),
    clearw:()=>{if(!S.wires.length)return toast('No wires');if(confirm('Remove all wires?')){pushUndo();S.wires=[];sel=[];commit()}},layers:()=>toggleLayers(true),
-   rerouteall:()=>{if(!S.wires.some(w=>w.path))return toast('All wires are already auto-routed');pushUndo();S.wires.forEach(w=>delete w.path);commit();toast('Wires re-routed')},settings:openSettings,help:openHelp,
-   about:()=>openModal(`<h3>DB Panel Designer</h3><p class="muted">Version ${APP_VERSION}<br>Panel + room designer · works offline · data stored on this device.<br>3D by three.js (MIT).</p><div class="mact"><button class="bb pri" data-close>OK</button></div>`)})[m]()}})}
+   rerouteall:()=>{if(!S.wires.some(w=>w.path))return toast('All wires are already auto-routed');pushUndo();S.wires.forEach(w=>delete w.path);commit();toast('Wires re-routed')},settings:openSettings,account:openAccount,help:openHelp,
+   about:()=>openModal(`<h3>DB Panel Designer</h3><p class="muted">Version ${APP_VERSION}<br>Panel + room designer · saved on this device, and in the cloud when you sign in.<br>3D by three.js (MIT).</p><div class="mact"><button class="bb pri" data-close>OK</button></div>`)})[m]()}})}
 /* openSettings() — preferences, storage, version and updates — is in settings.js */
 function openHelp(){openModal(`<h3>How to use</h3><div class="help">
  <p><b>Add parts:</b> tap + to open the library, then tap a part. Devices drop into the first free space on a DIN rail.</p>
@@ -751,7 +752,7 @@ function openHelp(){openModal(`<h3>How to use</h3><div class="help">
  <p><b>Navigate:</b> drag empty space to pan, pinch or mouse-wheel to zoom, ⤢ to fit.</p>
  <p><b>Room designer:</b> switch to <i>Room</i> at the top. Pick a wall (A–D) or the ceiling to place points on a flat view with heights and distances, then open <i>3D</i> to see the whole room — drag to rotate, pinch to zoom, two fingers to pan. Tap a wall in 3D to edit it.</p>
  <p><b>Keys:</b> W wire mode · L layers · Del delete · Ctrl+Z / Ctrl+Y · Ctrl+D copy · Esc deselect.</p>
- <p class="muted">Everything autosaves on this device. Use Export project to move one project to another device, or Settings → Back up everything to keep a copy of them all.</p></div><div class="mact"><button class="bb pri" data-close>Got it</button></div>`)}
+ <p class="muted">Everything autosaves on this device. Sign in under Menu → Account to keep a copy in the cloud and open your projects on your other devices. Export project and Settings → Back up everything make a file copy.</p></div><div class="mact"><button class="bb pri" data-close>Got it</button></div>`)}
 
 /* ---------- projects ---------- */
 function blankDoc(){const r={id:uid(),type:'rail',props:{mod:12,label:''},x:0,y:0,rail:null,slot:0,layer:'base'};return {name:'Untitled panel',items:[r],wires:[],layers:defaultLayers(),defs:{items:'base',wires:'wires'}}}
@@ -772,14 +773,17 @@ function demoDoc(){const it=[];const mk=(type,props,extra)=>{const o=normalize({
 function loadDoc(id){const P=loadProjects(),rec=P[id];if(!rec)return false;curId=id;S=migrate({name:rec.name,...(rec.data||{})});
  pruneWires();invalidate();undoS=[];redoS=[];sel=[];multi=false;pending=null;lsSet(LS_C,id);roomReset();if(appMode==='room')roomRefresh(true);else{render();requestAnimationFrame(fit)}updUI();renderLayers();return true}
 function newProject(doc){save();curId=uid();S=migrate(doc);save();loadDoc(curId)}
+/** "12 items · 9 wires" across every panel of a saved project (older saves hold a single flat panel). */
+function projCount(d){const ps=d&&Array.isArray(d.panels)?d.panels:[d||{}],n=k=>ps.reduce((a,p)=>a+(p[k]||[]).length,0);return `${n('items')} items · ${n('wires')} wires`}
 function openProjects(){const P=loadProjects(),ids=Object.keys(P).sort((a,b)=>(P[b].updated||0)-(P[a].updated||0));
- const rows=ids.map(id=>`<div class="prow ${id===curId?'cur':''}"><b>${esc(P[id].name)}</b><small>${new Date(P[id].updated||Date.now()).toLocaleString()} · ${(P[id].data?.items||[]).length} items · ${(P[id].data?.wires||[]).length} wires</small><div class="pbtns">${id===curId?'<span class="badge">OPEN</span>':`<button class="bb pri" data-open="${id}">Open</button>`}<button class="bb" data-ren="${id}">Rename</button><button class="bb" data-copy="${id}">Copy</button><button class="bb danger" data-delp="${id}">Delete</button></div></div>`).join('');
+ const rows=ids.map(id=>`<div class="prow ${id===curId?'cur':''}"><b>${esc(P[id].name)}</b><small>${new Date(P[id].updated||Date.now()).toLocaleString()} · ${projCount(P[id].data)}<span data-cb="${id}">${cloudRowBadge(id,P[id])}</span></small><div class="pbtns">${id===curId?'<span class="badge">OPEN</span>':`<button class="bb pri" data-open="${id}">Open</button>`}<span data-cbh="${id}">${cloudRowButtons(id)}</span><button class="bb" data-ren="${id}">Rename</button><button class="bb" data-copy="${id}">Copy</button><button class="bb danger" data-delp="${id}">Delete</button></div></div>`).join('');
  openModal(`<h3>Projects</h3>${rows||'<p class="muted">No projects yet.</p>'}<div class="mact"><button class="bb" data-new="demo">New from demo</button><button class="bb pri" data-new="blank">New blank</button><button class="bb" data-close>Close</button></div>`,box=>{
  box.onclick=e=>{const b=e.target.closest('button');if(!b)return;const P=loadProjects();
   if(b.dataset.open){closeModal();save();loadDoc(b.dataset.open)}
   else if(b.dataset.ren){const id=b.dataset.ren,n=prompt('Project name',P[id].name);if(n&&n.trim()){if(id===curId){S.name=n.trim();save();updUI()}else{P[id].name=n.trim();saveProjects(P)}openProjects()}}
   else if(b.dataset.copy){save();const src=loadProjects()[b.dataset.copy];closeModal();newProject({...JSON.parse(JSON.stringify(src.data)),name:src.name+' (copy)'});toast('Project copied')}
-  else if(b.dataset.delp){const id=b.dataset.delp;if(!confirm(`Delete "${P[id].name}"? This cannot be undone.`))return;delete P[id];saveProjects(P);
+  else if(b.dataset.hist)cloudHistory(b.dataset.hist);
+  else if(b.dataset.delp){const id=b.dataset.delp;if(!confirm(`Delete "${P[id].name}"? ${cloudOn()&&cloudMetaLoad().projects[id]?'The cloud keeps it for 90 days (Account → Recently deleted).':'This cannot be undone.'}`))return;delete P[id];saveProjects(P);if(typeof cloudDeleted==='function')cloudDeleted(id);
    if(id===curId){const rest=Object.keys(P);curId=null;if(rest.length)loadDoc(rest.sort((a,c)=>(P[c].updated||0)-(P[a].updated||0))[0]);else newProject(blankDoc())}openProjects()}
   else if(b.dataset.new){closeModal();newProject(b.dataset.new==='demo'?demoDoc():blankDoc());setSheet(true)}}})}
 
@@ -925,5 +929,5 @@ document.addEventListener('gesturestart',e=>e.preventDefault());
 window.addEventListener('DOMContentLoaded',function boot(){document.body.classList.toggle('room',appMode==='room');if(appMode==='room')roomEnter(true);renderTabs();const P=loadProjects();let id=lsGet(LS_C);
  if(!id||!P[id]){const ids=Object.keys(P).sort((a,b)=>(P[b].updated||0)-(P[a].updated||0));id=ids[0]||null}
  if(id&&loadDoc(id))return;
- curId=uid();const d=demoDoc();S=migrate(d);save();loadDoc(curId)});
+ curId=uid();const d=demoDoc();S=migrate(d);save();loadDoc(curId);cloudMarkSeed(curId)});
 applyView();

@@ -170,3 +170,16 @@ body.sheet-open #updbar{bottom:calc(var(--sheetH) + 68px)}
 .mbox details{margin-top:10px;font-size:13.5px}
 .mbox summary{font-weight:600;padding:6px 0;cursor:pointer}
 .mbox details ul{margin:4px 0 0;padding-left:20px;line-height:1.45}
+
+/* ---- accounts + cloud sync ---- */
+.mact.stack{flex-direction:column;align-items:stretch;justify-content:flex-start}
+.mact.stack .bb{width:100%;min-height:44px;font-size:15px}
+.cerr{margin:2px 0 10px;font-size:13px;font-weight:600;color:#b3261e;background:#fdecea;border-radius:8px;padding:8px 10px}
+.lnk{border:0;background:none;padding:6px 2px;font:inherit;font-weight:700;color:var(--blue);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.cb{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;border-radius:6px;padding:2px 7px;color:#6b6b70;background:#f0f0f3;white-space:nowrap}
+.cb.ok{color:#1d7f35;background:#e6f5ea}.cb.pend{color:#b25000;background:#fff4e5}.cb.bad{color:#b3261e;background:#fdecea}
+#titleChip::before{content:"";display:none;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:1px;background:#30b350}
+#titleChip.cs-ok::before,#titleChip.cs-pend::before,#titleChip.cs-err::before{display:inline-block}
+#titleChip.cs-pend::before{background:#ff9f0a}
+#titleChip.cs-err::before{background:#ff3b30}
+[data-cbh]{display:contents}

@@ -181,6 +181,19 @@ body.sheet-open #updbar{bottom:calc(var(--sheetH) + 68px)}
 .mbox summary{font-weight:600;padding:6px 0;cursor:pointer}
 .mbox details ul{margin:4px 0 0;padding-left:20px;line-height:1.45}
 
+/* ---- accounts + cloud sync ---- */
+.mact.stack{flex-direction:column;align-items:stretch;justify-content:flex-start}
+.mact.stack .bb{width:100%;min-height:44px;font-size:15px}
+.cerr{margin:2px 0 10px;font-size:13px;font-weight:600;color:#b3261e;background:#fdecea;border-radius:8px;padding:8px 10px}
+.lnk{border:0;background:none;padding:6px 2px;font:inherit;font-weight:700;color:var(--blue);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.cb{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;border-radius:6px;padding:2px 7px;color:#6b6b70;background:#f0f0f3;white-space:nowrap}
+.cb.ok{color:#1d7f35;background:#e6f5ea}.cb.pend{color:#b25000;background:#fff4e5}.cb.bad{color:#b3261e;background:#fdecea}
+#titleChip::before{content:"";display:none;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:1px;background:#30b350}
+#titleChip.cs-ok::before,#titleChip.cs-pend::before,#titleChip.cs-err::before{display:inline-block}
+#titleChip.cs-pend::before{background:#ff9f0a}
+#titleChip.cs-err::before{background:#ff3b30}
+[data-cbh]{display:contents}
+
 </style>
 </head>
 <body class="sheet-open">
@@ -237,7 +250,7 @@ body.sheet-open #updbar{bottom:calc(var(--sheetH) + 68px)}
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.12.0';
+const APP_VERSION='2.13.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -250,7 +263,7 @@ const LS_P='pdes.projects.v1', LS_C='pdes.current', LS_SET='pdes.settings';
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
 function lsSet(k,v){try{localStorage.setItem(k,v);return true}catch(e){return false}}
 function loadProjects(){try{return JSON.parse(lsGet(LS_P))||{}}catch(e){return {}}}
-function saveProjects(P){if(!lsSet(LS_P,JSON.stringify(P)))toast('Could not save — storage unavailable or full')}
+function saveProjects(P){if(!lsSet(LS_P,JSON.stringify(P)))toast('Could not save — storage unavailable or full');else if(typeof cloudChanged==='function')cloudChanged()}
 let settings=Object.assign({mode:'panel',scheme:'redblue',snap:true,labels:true,wireColor:'auto',wireSize:2.5},(()=>{try{return JSON.parse(lsGet(LS_SET))||{}}catch(e){return {}}})());
 function saveSettings(){lsSet(LS_SET,JSON.stringify(settings))}
 
@@ -964,14 +977,15 @@ function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="layers">Layers <small>${S.layers.length}</small></button>
  <button data-m="rerouteall">Auto-route all wires <small>resets manual paths</small></button>
  <button data-m="clearw">Remove all wires</button>
+ <button data-m="account">Account <small>${esc(cloudMenuHint())}</small></button>
  <button data-m="settings">Settings${updAvailable()?'<small class="uh">update available</small>':''}</button>
  <button data-m="help">How to use</button>
  <button data-m="about">About <small>v${APP_VERSION}</small></button></div><div class="mact"><button class="bb" data-close>Close</button></div>`,box=>{
  box.querySelector('.mlist').onclick=e=>{const b=e.target.closest('[data-m]');if(!b)return;const m=b.dataset.m;closeModal();
   ({projects:openProjects,mode:()=>setAppMode(appMode==='room'?'panel':'room'),roomset:()=>openRoomSettings(),bom:openBOM,sheet:()=>roomSheet(),encl:openEncl,panels:openPanels,cct:openCircuits,png:()=>appMode==='room'?roomExport():exportPNG(),svg:()=>appMode==='room'?roomExport(true):shareOrDownload(new Blob([exportSVG().svg],{type:'image/svg+xml'}),fname()+'.svg'),json:exportJSON,import:()=>$('#fileIn').click(),
    clearw:()=>{if(!S.wires.length)return toast('No wires');if(confirm('Remove all wires?')){pushUndo();S.wires=[];sel=[];commit()}},layers:()=>toggleLayers(true),
-   rerouteall:()=>{if(!S.wires.some(w=>w.path))return toast('All wires are already auto-routed');pushUndo();S.wires.forEach(w=>delete w.path);commit();toast('Wires re-routed')},settings:openSettings,help:openHelp,
-   about:()=>openModal(`<h3>DB Panel Designer</h3><p class="muted">Version ${APP_VERSION}<br>Panel + room designer · works offline · data stored on this device.<br>3D by three.js (MIT).</p><div class="mact"><button class="bb pri" data-close>OK</button></div>`)})[m]()}})}
+   rerouteall:()=>{if(!S.wires.some(w=>w.path))return toast('All wires are already auto-routed');pushUndo();S.wires.forEach(w=>delete w.path);commit();toast('Wires re-routed')},settings:openSettings,account:openAccount,help:openHelp,
+   about:()=>openModal(`<h3>DB Panel Designer</h3><p class="muted">Version ${APP_VERSION}<br>Panel + room designer · saved on this device, and in the cloud when you sign in.<br>3D by three.js (MIT).</p><div class="mact"><button class="bb pri" data-close>OK</button></div>`)})[m]()}})}
 /* openSettings() — preferences, storage, version and updates — is in settings.js */
 function openHelp(){openModal(`<h3>How to use</h3><div class="help">
  <p><b>Add parts:</b> tap + to open the library, then tap a part. Devices drop into the first free space on a DIN rail.</p>
@@ -984,7 +998,7 @@ function openHelp(){openModal(`<h3>How to use</h3><div class="help">
  <p><b>Navigate:</b> drag empty space to pan, pinch or mouse-wheel to zoom, ⤢ to fit.</p>
  <p><b>Room designer:</b> switch to <i>Room</i> at the top. Pick a wall (A–D) or the ceiling to place points on a flat view with heights and distances, then open <i>3D</i> to see the whole room — drag to rotate, pinch to zoom, two fingers to pan. Tap a wall in 3D to edit it.</p>
  <p><b>Keys:</b> W wire mode · L layers · Del delete · Ctrl+Z / Ctrl+Y · Ctrl+D copy · Esc deselect.</p>
- <p class="muted">Everything autosaves on this device. Use Export project to move one project to another device, or Settings → Back up everything to keep a copy of them all.</p></div><div class="mact"><button class="bb pri" data-close>Got it</button></div>`)}
+ <p class="muted">Everything autosaves on this device. Sign in under Menu → Account to keep a copy in the cloud and open your projects on your other devices. Export project and Settings → Back up everything make a file copy.</p></div><div class="mact"><button class="bb pri" data-close>Got it</button></div>`)}
 
 /* ---------- projects ---------- */
 function blankDoc(){const r={id:uid(),type:'rail',props:{mod:12,label:''},x:0,y:0,rail:null,slot:0,layer:'base'};return {name:'Untitled panel',items:[r],wires:[],layers:defaultLayers(),defs:{items:'base',wires:'wires'}}}
@@ -1005,14 +1019,17 @@ function demoDoc(){const it=[];const mk=(type,props,extra)=>{const o=normalize({
 function loadDoc(id){const P=loadProjects(),rec=P[id];if(!rec)return false;curId=id;S=migrate({name:rec.name,...(rec.data||{})});
  pruneWires();invalidate();undoS=[];redoS=[];sel=[];multi=false;pending=null;lsSet(LS_C,id);roomReset();if(appMode==='room')roomRefresh(true);else{render();requestAnimationFrame(fit)}updUI();renderLayers();return true}
 function newProject(doc){save();curId=uid();S=migrate(doc);save();loadDoc(curId)}
+/** "12 items · 9 wires" across every panel of a saved project (older saves hold a single flat panel). */
+function projCount(d){const ps=d&&Array.isArray(d.panels)?d.panels:[d||{}],n=k=>ps.reduce((a,p)=>a+(p[k]||[]).length,0);return `${n('items')} items · ${n('wires')} wires`}
 function openProjects(){const P=loadProjects(),ids=Object.keys(P).sort((a,b)=>(P[b].updated||0)-(P[a].updated||0));
- const rows=ids.map(id=>`<div class="prow ${id===curId?'cur':''}"><b>${esc(P[id].name)}</b><small>${new Date(P[id].updated||Date.now()).toLocaleString()} · ${(P[id].data?.items||[]).length} items · ${(P[id].data?.wires||[]).length} wires</small><div class="pbtns">${id===curId?'<span class="badge">OPEN</span>':`<button class="bb pri" data-open="${id}">Open</button>`}<button class="bb" data-ren="${id}">Rename</button><button class="bb" data-copy="${id}">Copy</button><button class="bb danger" data-delp="${id}">Delete</button></div></div>`).join('');
+ const rows=ids.map(id=>`<div class="prow ${id===curId?'cur':''}"><b>${esc(P[id].name)}</b><small>${new Date(P[id].updated||Date.now()).toLocaleString()} · ${projCount(P[id].data)}<span data-cb="${id}">${cloudRowBadge(id,P[id])}</span></small><div class="pbtns">${id===curId?'<span class="badge">OPEN</span>':`<button class="bb pri" data-open="${id}">Open</button>`}<span data-cbh="${id}">${cloudRowButtons(id)}</span><button class="bb" data-ren="${id}">Rename</button><button class="bb" data-copy="${id}">Copy</button><button class="bb danger" data-delp="${id}">Delete</button></div></div>`).join('');
  openModal(`<h3>Projects</h3>${rows||'<p class="muted">No projects yet.</p>'}<div class="mact"><button class="bb" data-new="demo">New from demo</button><button class="bb pri" data-new="blank">New blank</button><button class="bb" data-close>Close</button></div>`,box=>{
  box.onclick=e=>{const b=e.target.closest('button');if(!b)return;const P=loadProjects();
   if(b.dataset.open){closeModal();save();loadDoc(b.dataset.open)}
   else if(b.dataset.ren){const id=b.dataset.ren,n=prompt('Project name',P[id].name);if(n&&n.trim()){if(id===curId){S.name=n.trim();save();updUI()}else{P[id].name=n.trim();saveProjects(P)}openProjects()}}
   else if(b.dataset.copy){save();const src=loadProjects()[b.dataset.copy];closeModal();newProject({...JSON.parse(JSON.stringify(src.data)),name:src.name+' (copy)'});toast('Project copied')}
-  else if(b.dataset.delp){const id=b.dataset.delp;if(!confirm(`Delete "${P[id].name}"? This cannot be undone.`))return;delete P[id];saveProjects(P);
+  else if(b.dataset.hist)cloudHistory(b.dataset.hist);
+  else if(b.dataset.delp){const id=b.dataset.delp;if(!confirm(`Delete "${P[id].name}"? ${cloudOn()&&cloudMetaLoad().projects[id]?'The cloud keeps it for 90 days (Account → Recently deleted).':'This cannot be undone.'}`))return;delete P[id];saveProjects(P);if(typeof cloudDeleted==='function')cloudDeleted(id);
    if(id===curId){const rest=Object.keys(P);curId=null;if(rest.length)loadDoc(rest.sort((a,c)=>(P[c].updated||0)-(P[a].updated||0))[0]);else newProject(blankDoc())}openProjects()}
   else if(b.dataset.new){closeModal();newProject(b.dataset.new==='demo'?demoDoc():blankDoc());setSheet(true)}}})}
 
@@ -1158,7 +1175,7 @@ document.addEventListener('gesturestart',e=>e.preventDefault());
 window.addEventListener('DOMContentLoaded',function boot(){document.body.classList.toggle('room',appMode==='room');if(appMode==='room')roomEnter(true);renderTabs();const P=loadProjects();let id=lsGet(LS_C);
  if(!id||!P[id]){const ids=Object.keys(P).sort((a,b)=>(P[b].updated||0)-(P[a].updated||0));id=ids[0]||null}
  if(id&&loadDoc(id))return;
- curId=uid();const d=demoDoc();S=migrate(d);save();loadDoc(curId)});
+ curId=uid();const d=demoDoc();S=migrate(d);save();loadDoc(curId);cloudMarkSeed(curId)});
 applyView();
 
 </script>
@@ -2373,7 +2390,7 @@ function storageUse(){let n=0;
  return n}
 
 /* ---------- preferences ---------- */
-const prefsHTML=()=>`<section class="sec first"><h4>Preferences</h4>
+const prefsHTML=()=>`<section class="sec"><h4>Preferences</h4>
  <label>Wire colour scheme (Auto)<select id="pScheme">${Object.entries(SCHEMES).map(([k,v])=>`<option value="${k}" ${k===settings.scheme?'selected':''}>${v.name}</option>`).join('')}</select></label>
  <label class="row"><input type="checkbox" id="pSnap" ${settings.snap?'checked':''}>Snap free items to grid</label>
  <label class="row"><input type="checkbox" id="pLabels" ${settings.labels?'checked':''}>Show circuit labels</label></section>`;
@@ -2399,6 +2416,7 @@ function importBackup(o){
   P[uid()]={name:r.name.slice(0,80),updated:+r.updated||Date.now(),appVersion:String(r.appVersion||APP_VERSION),data:r.data};n++}
  if(!n)return toast('That backup has no projects in it');
  if(!lsSet(LS_P,JSON.stringify(P)))return toast('Not enough room on this device for that backup');
+ cloudChanged();
  toast(`Added ${n} project${n===1?'':'s'} from the backup`);openProjects()}
 
 async function persistCheck(box){
@@ -2448,8 +2466,603 @@ function renderApp(box){
 function settingsUpdated(){const a=mbox.querySelector('#sApp');if(a&&a.isConnected&&!modal.classList.contains('hidden'))renderApp(mbox)}
 
 function openSettings(){
- openModal(`<h3>Settings</h3><div id="sAlert"></div>${prefsHTML()}<section class="sec" id="sStore"></section><section class="sec" id="sApp"></section><div class="mact"><button class="bb pri" data-close>Done</button></div>`,box=>{
-  bindPrefs(box);renderStore(box);renderApp(box)})}
+ openModal(`<h3>Settings</h3><div id="sAlert"></div><section class="sec first"><h4>Account</h4><div data-acct></div></section>${prefsHTML()}<section class="sec" id="sStore"></section><section class="sec" id="sApp"></section><div class="mact"><button class="bb pri" data-close>Done</button></div>`,box=>{
+  cloudRenderAcct(box.querySelector('[data-acct]'));bindPrefs(box);renderStore(box);renderApp(box)})}
+
+</script>
+<script>
+'use strict';
+/* =========================================================
+   Cloud account — session, API calls and change tracking.
+   localStorage stays the working store: the app never waits on the
+   network, so a guest (or someone offline) loses nothing. The reconcile
+   engine is cloud-sync.js; the screens are cloud-ui.js.
+   ========================================================= */
+const LS_CL_SES='pdes.cloud.session',LS_CL_META='pdes.cloud.meta',LS_CL_WEL='pdes.cloud.welcome',LS_CL_SEED='pdes.cloud.seed';
+const CLOUD_POLL=2*60e3;
+const CLOUD_NAME=/^[a-z0-9][a-z0-9._@+-]{2,39}$/;
+
+const cloud=(()=>{let s={};try{s=JSON.parse(lsGet(LS_CL_SES)||'null')||{}}catch(e){}
+ const token=typeof s.token==='string'?s.token:'',user=typeof s.user==='string'?s.user:'';
+ return {avail:false,checked:false,why:'',invite:false,user:token?user:'',token,
+  state:'idle',            // idle | syncing | offline | error | lost
+  err:'',note:'',last:0,lastTry:0,retry:0,defer:0,busy:false,again:false,edits:0,mute:false,
+  pending:!!token,         // edits (or a first sync) not yet confirmed by the cloud
+  problem:0,blocked:0,prog:null,touched:0,bad:{}}})();
+const cloudOn=()=>!!(cloud.token&&cloud.user);
+const cloudDel=k=>{try{localStorage.removeItem(k)}catch(e){}};
+const cloudObj=x=>x&&typeof x==='object'&&!Array.isArray(x)?x:{};
+
+/* What this device last agreed with the cloud: per project the revision and
+   a hash of the content then; plus deletes not yet sent. */
+function cloudMetaLoad(){let m=null;try{m=JSON.parse(lsGet(LS_CL_META)||'null')}catch(e){}
+ m=cloudObj(m);return {user:String(m.user||''),projects:cloudObj(m.projects),tombstones:cloudObj(m.tombstones)}}
+/** Read-modify-write in one synchronous step, so a delete made during a sync is never overwritten. */
+function cloudMeta(fn){const m=cloudMetaLoad(),r=fn(m);lsSet(LS_CL_META,JSON.stringify(m));return r}
+const cloudWrite=P=>lsSet(LS_P,JSON.stringify(P));
+
+/* Key order and the `updated` stamp must not look like an edit, so the
+   hash covers name + data only, with sorted keys. */
+function cloudCanon(v){if(v===null||typeof v!=='object')return JSON.stringify(v);
+ if(Array.isArray(v))return '['+v.map(cloudCanon).join(',')+']';
+ return '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+cloudCanon(v[k])).join(',')+'}'}
+function cloudHash(s){let a=0xdeadbeef,b=0x41c6ce57;
+ for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);a=Math.imul(a^c,2654435761);b=Math.imul(b^c,1597334677)}
+ a=Math.imul(a^(a>>>16),2246822507)^Math.imul(b^(b>>>13),3266489909);
+ b=Math.imul(b^(b>>>16),2246822507)^Math.imul(a^(a>>>13),3266489909);
+ return (4294967296*(2097151&b)+(a>>>0)).toString(36)}
+/* The server trims names and cuts them at 120, so do the same before hashing. */
+const cloudName=n=>String(n==null?'':n).trim().slice(0,120)||'Untitled';
+/* With an id the result is remembered per (id, saved-at, name): every edit
+   re-stamps `updated`, so a stale entry can't survive one. Saves repeated
+   hashing of big projects on every sync pass. */
+const cloudMemo=new Map();
+function cloudSigOf(rec,id){
+ const k=id?id+'|'+rec.updated+'|'+cloudName(rec.name):'';
+ if(k&&cloudMemo.has(k))return cloudMemo.get(k);
+ const h=cloudHash(cloudCanon({n:cloudName(rec.name),d:rec.data}));
+ if(k){if(cloudMemo.size>500)cloudMemo.clear();cloudMemo.set(k,h)}
+ return h}
+/* The sample project made on a first visit is not uploaded until it is
+   changed — every device makes its own, so syncing them only piles up copies. */
+const cloudMarkSeed=id=>{const rec=loadProjects()[id];if(rec)lsSet(LS_CL_SEED,JSON.stringify({id,h:cloudSigOf(rec,id)}))};
+function cloudIsSeed(id,rec){let s=null;try{s=JSON.parse(lsGet(LS_CL_SEED)||'null')}catch(e){}
+ return !!(s&&rec&&s.id===id&&s.h===cloudSigOf(rec,id))}
+/** A project saved by a newer major.minor may hold fields this version would drop. */
+const cloudNewer=app=>{if(!app)return false;const p=s=>String(s).split('.').slice(0,2).map(n=>parseInt(n,10)||0),a=p(app),b=p(APP_VERSION);
+ return a[0]>b[0]||(a[0]===b[0]&&a[1]>b[1])};
+
+/** Never throws; network trouble comes back as {net:true}. A 401 on a signed-in call ends the session. */
+async function cloudApi(method,path,body,o={}){
+ const ac=new AbortController(),t=setTimeout(()=>ac.abort(),o.timeout||25000),h={},tok=o.token||(o.anon?'':cloud.token);
+ if(body!==undefined)h['content-type']='application/json';
+ if(tok)h.authorization='Bearer '+tok;
+ try{
+  const res=await fetch('/api'+path,{method,headers:h,cache:'no-store',signal:ac.signal,body:body===undefined?undefined:typeof body==='string'?body:JSON.stringify(body)});
+  let j={};try{j=cloudObj(await res.json())}catch(e){}
+  if(res.status===401&&tok&&tok===cloud.token)cloudLost();
+  return {ok:res.ok,status:res.status,json:j}
+ }catch(e){return {ok:false,status:0,net:true,json:{error:e&&e.name==='AbortError'?'The cloud took too long to answer.':'Could not reach the cloud.'}}}
+ finally{clearTimeout(t)}}
+
+/** Is there a cloud behind this page? Needs http(s) for the API and a secure context for WebCrypto. */
+async function cloudPing(){
+ cloud.checked=true;
+ if(!/^https?:$/.test(location.protocol)){cloud.avail=false;cloud.why='protocol';return false}
+ if(!(window.crypto&&crypto.subtle)){cloud.avail=false;cloud.why='crypto';return false}
+ const r=await cloudApi('GET','/ping',undefined,{anon:true,timeout:8000});
+ cloud.avail=!!(r.ok&&r.json.app==='pdes'&&r.json.cloud===true);
+ cloud.invite=cloud.avail&&!!r.json.invite;
+ cloud.why=cloud.avail?'':r.net?'offline':'noserver';
+ return cloud.avail}
+
+/* The password never leaves the device: it is stretched here into a key and
+   only that key is sent. The username is the salt, so the same password
+   gives a different key on every account. */
+async function cloudAuthKey(user,pw){
+ const enc=new TextEncoder(),k=await crypto.subtle.importKey('raw',enc.encode(String(pw).normalize('NFKC')),'PBKDF2',false,['deriveBits']);
+ const bits=await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:enc.encode('pdes/v1/'+user),iterations:300000},k,256);
+ let s='';new Uint8Array(bits).forEach(b=>s+=String.fromCharCode(b));
+ return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+/** kind: 'register' | 'login'. Resolves {user,token} or {error}. */
+async function cloudAuth(kind,user,pw,invite){
+ user=String(user||'').trim().toLowerCase();
+ if(!CLOUD_NAME.test(user))return {error:'Use 3–40 characters for the username: letters, numbers and . _ @ + -'};
+ if(!pw)return {error:'Enter your password.'};
+ if(kind==='register'&&String(pw).length<8)return {error:'Use at least 8 characters for the password.'};
+ const auth=await cloudAuthKey(user,pw);
+ const r=await cloudApi('POST','/'+kind,{user,auth,invite:invite||undefined},{anon:true});
+ return r.ok?{user:r.json.user,token:r.json.token}:{error:r.json.error||'Something went wrong. Try again.'}}
+async function cloudChangePw(oldPw,newPw){
+ if(String(newPw).length<8)return {error:'Use at least 8 characters for the new password.'};
+ const [a,b]=await Promise.all([cloudAuthKey(cloud.user,oldPw),cloudAuthKey(cloud.user,newPw)]);
+ const r=await cloudApi('POST','/password',{auth:a,next:b});
+ return r.ok?{ok:true}:{error:r.json.error||'Could not change the password.'}}
+async function cloudDeleteAccount(pw){
+ const r=await cloudApi('POST','/account/delete',{auth:await cloudAuthKey(cloud.user,pw)});
+ if(!r.ok)return {error:r.json.error||'Could not delete the account.'};
+ cloudEndSession();cloudDel(LS_CL_META);cloudPaint();return {ok:true}}
+
+function cloudSaveSession(){cloudOn()?lsSet(LS_CL_SES,JSON.stringify({user:cloud.user,token:cloud.token})):cloudDel(LS_CL_SES)}
+function cloudLost(){if(!cloud.token)return;cloud.token='';cloud.state='lost';cloud.err='Your sign-in has expired.';cloudSaveSession();cloudPaint();toast('Signed out of the cloud — open Account in the menu to sign in again')}
+function cloudEndSession(){cloud.token='';cloud.user='';cloud.state='idle';cloud.err='';cloud.pending=false;cloud.problem=0;cloud.blocked=0;cloud.bad={};cloud.retry=0;
+ clearTimeout(cloudT);clearTimeout(cloudRT);cloudT0=0;cloudDel(LS_CL_SES)}
+async function cloudSignOut(clear){
+ if(cloudOn())await cloudApi('POST','/logout',undefined,{timeout:4000});
+ cloudEndSession();
+ if(clear){[LS_P,LS_C,LS_CL_META,LS_CL_WEL,LS_CL_SEED].forEach(cloudDel);location.reload();return}
+ cloudPaint()}
+
+/* ---------- when to sync ---------- */
+let cloudT=0,cloudT0=0,cloudRT=0;
+/** After edits: wait for a quiet moment, but never more than 30 s in all. */
+function cloudDebounce(ms){if(!cloudOn())return;const now=Date.now();if(!cloudT0)cloudT0=now;
+ clearTimeout(cloudT);cloudT=setTimeout(()=>{cloudT0=0;cloudSync('edit')},Math.max(0,Math.min(ms,cloudT0+30e3-now)))}
+function cloudLater(ms){clearTimeout(cloudRT);cloudRT=setTimeout(()=>cloudSync('retry'),ms)}
+/** Called by saveProjects() after every write of the project store (not for writes the sync itself makes). */
+function cloudChanged(){if(!cloudOn()||cloud.mute)return;cloud.edits++;cloud.pending=true;cloudPaint();cloudDebounce(4000)}
+const cloudKick=gap=>{if(cloudOn()&&!cloud.busy&&Date.now()-cloud.lastTry>gap)cloudSync('wake')};
+
+/* ---------- the dot on the project title ---------- */
+function cloudDot(){
+ if(cloud.state==='lost')return 'err';
+ if(!cloudOn())return '';
+ if(cloud.state==='error'||cloud.problem)return 'err';
+ return cloud.busy||cloud.pending||cloud.state==='offline'?'pend':'ok'}
+function cloudPaint(){
+ const c=$('#titleChip'),k=cloudDot();
+ if(c){c.classList.remove('cs-ok','cs-pend','cs-err');if(k)c.classList.add('cs-'+k);
+  c.title=({ok:'Saved to the cloud',pend:'Waiting to sync',err:'Not syncing — open Account in the menu'})[k]||''}
+ if(typeof cloudUiChanged==='function')cloudUiChanged()}
+
+(function cloudStart(){
+ const t=()=>{cloud.touched=Date.now()};
+ ['pointerdown','pointerup','keydown','wheel'].forEach(ev=>window.addEventListener(ev,t,true));
+ window.addEventListener('pointermove',e=>{if(e.buttons||e.pointerType==='touch')t()},true);
+ document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible')cloudKick(15e3);
+  else if(cloud.pending&&cloudOn())cloudSync('hide')});
+ window.addEventListener('focus',()=>cloudKick(30e3));
+ window.addEventListener('online',()=>cloudPing().then(()=>{cloudPaint();cloudKick(0)}));
+ setInterval(()=>{if(document.visibilityState==='visible')cloudKick(CLOUD_POLL-5e3)},CLOUD_POLL);
+ setTimeout(async()=>{await cloudPing();cloudPaint();
+  if(cloudOn())cloudSync('boot');else if(typeof cloudMaybeWelcome==='function')cloudMaybeWelcome()},1200);
+ cloudPaint()})();
+
+</script>
+<script>
+'use strict';
+/* =========================================================
+   Cloud sync engine.
+   Every project is reconciled on its own from three facts: what the cloud
+   holds (rev), what this device last agreed with (meta: rev + content hash)
+   and what is stored here now. When both sides changed, nothing is
+   overwritten — the cloud's version is kept beside yours as "(cloud copy)".
+   ========================================================= */
+class CloudAbort extends Error{}
+const cloudFail=r=>{const e=new CloudAbort((r.json&&r.json.error)||'The cloud had a problem.');e.net=!!r.net;e.lost=r.status===401;return e};
+
+/** Nobody is mid-edit, so the open project may be swapped underneath them. */
+function cloudIdle(){
+ if(!$('#modal').classList.contains('hidden'))return true;
+ const a=document.activeElement;
+ if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return false;
+ return Date.now()-cloud.touched>1500&&!(typeof ptrs!=='undefined'&&ptrs.size)}
+
+/** rec: local project (sig = its content hash) · m: what this device last agreed · r: the cloud's list row · tomb: a delete not yet sent */
+function cloudDecide(rec,m,r,tomb,sig){
+ if(tomb)return !r||r.deleted?'forget':tomb.rev<0||tomb.rev===r.rev?'delete':'restore';
+ if(!rec)return !r||r.deleted?'forget':'pull-new';
+ if(!r)return 'push-new';
+ const dirty=!m||sig!==m.h;
+ if(r.deleted)return m&&!dirty?'drop':'push-over';
+ if(!m)return 'adopt';
+ if(m.rev===r.rev)return dirty?'push':'same';
+ return m.rev<r.rev&&!dirty?'pull':'conflict'}
+
+function cloudSetLocal(id,remote){
+ const P=loadProjects();P[id]={name:remote.name,updated:remote.updated,appVersion:remote.app,data:remote.data};
+ if(!cloudWrite(P))return false;
+ cloudMeta(x=>{x.projects[id]={rev:remote.rev,h:cloudSigOf(P[id])}});return true}
+
+function cloudBody(rec,baseRev,snap){
+ if(!rec.data||typeof rec.data!=='object'||Array.isArray(rec.data))return '';
+ const b=JSON.stringify({name:cloudName(rec.name),updated:+rec.updated||Date.now(),app:rec.appVersion||APP_VERSION,baseRev,data:rec.data,snapshot:snap||undefined});
+ return b.length>1.9e6?'':b}
+/** → {ok,rev} · {conflict} · {bad:why}; trouble reaching the cloud throws CloudAbort. */
+async function cloudPut(id,rec,baseRev,snap){
+ const body=cloudBody(rec,baseRev,snap);
+ if(!body)return {bad:'Too large to sync (the limit is about 1.5 MB) — it stays on this device.'};
+ const r=await cloudApi('PUT','/projects/'+id,body);
+ if(r.ok)return {ok:true,rev:r.json.rev};
+ if(r.status===409&&r.json.conflict)return {conflict:true};
+ if(r.net||r.status===401||r.status===429||r.status>=500)throw cloudFail(r);
+ return {bad:r.json.error||'The cloud refused this project.'}}
+function cloudBad(id,sig,msg,rep){cloud.bad[id]={h:sig,msg};rep.problem++;rep.note=rep.note||msg}
+
+/** Save the cloud's version as a local project of its own (once). Returns its name, '' if the browser is full. */
+function cloudKeepCopy(remote){
+ const P=loadProjects(),dh=cloudHash(cloudCanon(remote.data));
+ const dup=Object.keys(P).find(k=>/ \(cloud copy( \d+)?\)$/.test(P[k].name||'')&&cloudHash(cloudCanon(P[k].data))===dh);
+ if(dup)return P[dup].name;
+ const used=new Set(Object.keys(P).map(k=>P[k].name));let name=remote.name+' (cloud copy)',n=2;
+ while(used.has(name))name=remote.name+' (cloud copy '+(n++)+')';
+ P[uid()]={name,updated:remote.updated,appVersion:remote.app,data:remote.data};
+ return cloudWrite(P)?name:''}
+
+/** Both sides changed (or this device never synced the project): keep the cloud's as a copy, then send ours on top. */
+async function cloudKeepBoth(id,rep){
+ const g=await cloudApi('GET','/projects/'+id);
+ if(!g.ok){if(g.status===404){rep.again=true;return}throw cloudFail(g)}
+ const remote=g.json,rec=loadProjects()[id];
+ if(!rec||cloudMetaLoad().tombstones[id]){rep.again=true;return}
+ const sig=cloudSigOf(rec);
+ if(sig===cloudSigOf(remote)){cloudMeta(x=>{x.projects[id]={rev:remote.rev,h:sig}});return}
+ if(!cloudBody(rec,0,true))return cloudBad(id,sig,'Too large to sync (the limit is about 1.5 MB) — it stays on this device.',rep);
+ const copy=cloudKeepCopy(remote);
+ if(!copy){rep.problem++;rep.note=rep.note||'This device is out of storage.';return}
+ const res=await cloudPut(id,rec,remote.rev,true);
+ if(res.ok){cloudMeta(x=>{x.projects[id]={rev:res.rev,h:sig}});rep.kept++;rep.pushed++;rep.again=true;toast(`Changed on two devices — both kept. The other one is "${copy}".`)}
+ else if(res.conflict)rep.again=true;
+ else cloudBad(id,sig,res.bad,rep)}
+
+/** act: 'pull' (we hold an older clean copy) or 'pull-new' (we have none). */
+async function cloudPull(id,act,rep){
+ if(rep.full){rep.problem++;return}
+ if(id===curId&&!cloudIdle()){rep.deferred++;return}
+ const g=await cloudApi('GET','/projects/'+id);
+ if(!g.ok){if(g.status===404||g.status===400){rep.again=true;return}throw cloudFail(g)}
+ const remote=g.json,rec=loadProjects()[id],m=cloudMetaLoad();
+ const clean=act==='pull'?!!(rec&&m.projects[id]&&cloudSigOf(rec)===m.projects[id].h):!rec;
+ if(!clean||m.tombstones[id]){rep.again=true;return}
+ if(id===curId){
+  if(!cloudIdle()){rep.deferred++;return}
+  cloud.mute=true;
+  try{pushUndo();S.name=remote.name;restore(JSON.stringify(remote.data))}
+  catch(e){console.error('[cloud]',e);loadDoc(id);rep.problem++;rep.note=rep.note||'A cloud project could not be opened.';return}
+  finally{cloud.mute=false}
+  const now=loadProjects()[id]||{name:remote.name,data:remote.data};
+  cloudMeta(x=>{x.projects[id]={rev:remote.rev,h:cloudSigOf(now)}});toast('Updated from the cloud');
+ }else if(!cloudSetLocal(id,remote)){rep.full=true;rep.problem++;rep.note=rep.note||'This device is out of storage.';return}
+ rep.pulled++}
+
+/** Deleted on another device while this copy is unchanged here: follow the delete. */
+function cloudDrop(id,rep,quiet){
+ if(id===curId&&!cloudIdle()){rep.deferred++;return}
+ const P=loadProjects(),rec=P[id];if(!rec)return;
+ const name=rec.name;delete P[id];
+ if(!cloudWrite(P))return;
+ cloudMeta(x=>{delete x.projects[id]});
+ if(id===curId){const rest=Object.keys(P).sort((a,c)=>(P[c].updated||0)-(P[a].updated||0));curId=null;rest.length?loadDoc(rest[0]):newProject(blankDoc())}
+ if(!quiet)toast(`"${name}" was deleted on another device`)}
+/** Once the cloud holds projects of the user's own, this device's untouched sample project is only clutter. */
+function cloudDropSeed(rows,rep){
+ if(!Object.values(rows).some(p=>!p.deleted))return;
+ const P=loadProjects(),m=cloudMetaLoad().projects,id=Object.keys(P).find(k=>!m[k]&&cloudIsSeed(k,P[k]));
+ if(id)cloudDrop(id,rep,true)}
+
+async function cloudSendDelete(id,r,tomb,rep){
+ const q=await cloudApi('DELETE','/projects/'+id+'?base='+(tomb.rev<0?r.rev:tomb.rev));
+ if(q.ok||(q.status>=400&&q.status<500&&q.status!==401&&q.status!==429)){
+  cloudMeta(x=>{delete x.tombstones[id]});
+  if(q.status===409)rep.again=true;else if(q.ok)rep.pushed++}
+ else throw cloudFail(q)}
+
+/** peek: this project as read once at the start of the pass — enough to see that nothing needs doing; anything else is re-read. */
+async function cloudAct(id,r,rep,peek){
+ const m0=cloudMetaLoad(),m=m0.projects[id];let tomb=m0.tombstones[id];
+ if(!tomb&&peek&&m&&r&&!r.deleted&&m.rev===r.rev&&cloudSigOf(peek,id)===m.h)return;
+ const rec=loadProjects()[id];
+ if(tomb&&rec){cloudMeta(x=>{delete x.tombstones[id]});tomb=null}
+ const sig=rec?cloudSigOf(rec,id):'',act=cloudDecide(rec,m,r,tomb,sig);
+ if(act==='push-new'&&cloudIsSeed(id,rec))return;
+ if(cloud.bad[id]&&cloud.bad[id].h!==sig)delete cloud.bad[id];
+ if(r&&cloudNewer(r.app)&&['pull','pull-new','restore','push','conflict','adopt'].includes(act)){rep.blocked++;return}
+ if(cloud.bad[id]&&/^(push|conflict|adopt)/.test(act)){rep.problem++;rep.note=rep.note||cloud.bad[id].msg;return}
+ switch(act){
+  case 'forget':cloudMeta(x=>{delete x.projects[id];delete x.tombstones[id]});return;
+  case 'delete':return cloudSendDelete(id,r,tomb,rep);
+  case 'restore':cloudMeta(x=>{delete x.tombstones[id]});return cloudPull(id,'pull-new',rep);
+  case 'pull':case 'pull-new':return cloudPull(id,act,rep);
+  case 'drop':return cloudDrop(id,rep);
+  case 'adopt':case 'conflict':return cloudKeepBoth(id,rep);
+  case 'push-new':case 'push':case 'push-over':{
+   const res=await cloudPut(id,rec,act==='push-new'?0:act==='push'?m.rev:r.rev,false);
+   if(res.ok){cloudMeta(x=>{x.projects[id]={rev:res.rev,h:sig}});rep.pushed++}
+   else if(res.conflict){if(act==='push-over')rep.again=true;else await cloudKeepBoth(id,rep)}
+   else cloudBad(id,sig,res.bad,rep)}}}
+
+async function cloudCycle(rep,tok){
+ const lr=await cloudApi('GET','/projects');
+ if(!lr.ok)throw cloudFail(lr);
+ const rows={};(lr.json.projects||[]).forEach(p=>{rows[p.id]=p});
+ const m=cloudMetaLoad(),P0=loadProjects(),ids=new Set([...Object.keys(rows),...Object.keys(P0),...Object.keys(m.projects),...Object.keys(m.tombstones)]);
+ const order=[...ids].sort((a,b)=>!!m.tombstones[b]-!!m.tombstones[a]);
+ cloud.prog={done:0,total:order.length};
+ for(const id of order){
+  if(cloud.token!==tok){const q=new CloudAbort('Account changed.');q.quiet=true;throw q}
+  await cloudAct(id,rows[id],rep,P0[id]);cloud.prog.done++;
+  if(cloud.prog.done%5===0)cloudPaint()}
+ if(!rep.full)cloudDropSeed(rows,rep)}
+
+let cloudChain=0;
+/** Reconcile with the cloud. Resolves to a report ({pulled,pushed,kept,…}), or null when it did not run. */
+async function cloudSync(why){
+ if(!cloudOn())return null;
+ if(cloud.busy){cloud.again=true;return null}
+ if(navigator.onLine===false){cloud.state='offline';cloud.err='You are offline.';cloudPaint();return null}
+ const e0=cloud.edits,tok=cloud.token,rep={pulled:0,pushed:0,kept:0,blocked:0,problem:0,deferred:0,again:false,full:false,note:'',ran:false,why};
+ cloud.busy=true;cloud.again=false;cloud.lastTry=Date.now();cloud.state='syncing';cloudPaint();
+ try{
+  const go=async()=>{rep.ran=true;await cloudCycle(rep,tok)};
+  if(navigator.locks)await navigator.locks.request('pdes-cloud-sync',{ifAvailable:true},lock=>lock?go():null);else await go();
+  if(rep.ran){
+   cloud.problem=rep.problem;cloud.blocked=rep.blocked;cloud.note=rep.note;cloud.last=Date.now();cloud.retry=0;cloud.err='';
+   cloud.pending=cloud.edits!==e0||rep.deferred>0||rep.again;
+   cloud.defer=rep.deferred?Math.min(60e3,(cloud.defer||3e3)*2):0;if(cloud.defer)cloudLater(cloud.defer)}
+  if(cloud.state!=='lost')cloud.state='idle';
+ }catch(e){
+  if(!(e instanceof CloudAbort))console.error('[cloud]',e);
+  if(!e.quiet&&cloudOn()&&cloud.state!=='lost'){
+   cloud.state=e.net||navigator.onLine===false?'offline':'error';
+   cloud.err=e instanceof CloudAbort?e.message:'Sync hit an unexpected problem.';
+   cloud.retry=Math.min(600e3,cloud.retry?cloud.retry*2:20e3);cloudLater(cloud.retry)}
+ }finally{cloud.busy=false;cloud.prog=null}
+ cloudPaint();
+ if(!rep.ran&&cloud.pending&&cloudOn()&&cloud.state==='idle')cloudLater(15e3);
+ const redo=cloud.again||rep.again;cloud.again=false;
+ if(redo&&cloud.state==='idle')cloudChain++<4?setTimeout(()=>cloudSync('again'),rep.again?1200:300):cloudLater(30e3);
+ else cloudChain=0;
+ return rep}
+
+/** panel.js calls this right after it removes a project, so the delete reaches the cloud and not only this device. */
+function cloudDeleted(id){
+ const e=cloudMetaLoad().projects[id];
+ if(!cloudOn()&&!e)return;
+ delete cloud.bad[id];
+ cloudMeta(x=>{delete x.projects[id];x.tombstones[id]={rev:e?e.rev:-1}});
+ if(cloudOn()){cloud.edits++;cloud.pending=true;cloudPaint();cloudDebounce(1500)}}
+
+</script>
+<script>
+'use strict';
+/* =========================================================
+   Cloud account screens — welcome, sign in / create account, the account
+   card (shared by the Account menu row and Settings), sign out, password
+   and account deletion. Version history is in cloud-hist.js.
+   ========================================================= */
+const cloudSleep=ms=>new Promise(r=>setTimeout(r,ms));
+const cloudUnsynced=()=>{const P=loadProjects(),m=cloudMetaLoad().projects;return Object.keys(P).filter(id=>m[id]?cloudSigOf(P[id],id)!==m[id].h:!cloudIsSeed(id,P[id])).length};
+const cloudMenuHint=()=>cloudOn()?cloud.user:cloud.state==='lost'?'signed out':!cloud.checked?'':cloud.avail?'guest':'unavailable';
+const CLOUD_WHY={protocol:'Cloud accounts work when the app is opened from its web address (https), not from a saved file.',
+ crypto:'This page is not on a secure (https) connection, so cloud accounts are switched off.',
+ offline:'You are offline, so the cloud is out of reach right now.',noserver:'This copy of the app has no cloud behind it.'};
+const cloudS=(n,one,many)=>n+' '+(n===1?one:many);
+
+/** How the cloud is doing, as [text, css class]. */
+function cloudStatus(){
+ const c=cloud;
+ if(c.state==='lost')return ['Signed out — sign in again to resume syncing.','bad'];
+ if(c.state==='syncing')return ['Syncing…'+(c.prog&&c.prog.total>1?` (${c.prog.done} of ${c.prog.total})`:''),''];
+ if(c.state==='offline')return ['Offline — your changes sync when you are back online.','up'];
+ if(c.state==='error')return ['Sync problem: '+(c.err||'will retry shortly'),'bad'];
+ if(c.problem)return [cloudS(c.problem,'project','projects')+' can’t sync'+(c.note?' — '+c.note:''),'bad'];
+ if(c.blocked)return [cloudS(c.blocked,'project was','projects were')+' saved by a newer version of the app. Update to open '+(c.blocked===1?'it':'them')+'.','up'];
+ if(c.pending)return ['Waiting to sync…','up'];
+ return ['All changes are saved to the cloud.','ok']}
+
+function cloudAcctHTML(){
+ if(cloudOn()){
+  const [txt,cls]=cloudStatus(),n=Object.keys(cloudMetaLoad().projects).length;
+  return `<div class="scard"><div class="srow"><b>${esc(cloud.user)}</b><span class="cb ${cls==='ok'?'ok':cls==='bad'?'bad':'pend'}">${cls==='ok'?'synced':cls==='bad'?'problem':'syncing'}</span></div>
+   <p class="sstat ${cls}">${esc(txt)}</p>
+   <p class="muted">${cloudS(n,'project','projects')} in the cloud${cloud.last?' · last synced '+fmtAgo(cloud.last):''}</p>
+   <div class="pbtns"><button type="button" class="bb pri" data-ca="sync" ${cloud.busy?'disabled':''}>Sync now</button><button type="button" class="bb" data-ca="out">Sign out</button></div>
+   <details><summary>More</summary><div class="pbtns"><button type="button" class="bb" data-ca="del">Recently deleted</button><button type="button" class="bb" data-ca="pw">Change password</button><button type="button" class="bb danger" data-ca="kill">Delete account</button></div></details></div>`}
+ if(cloud.state==='lost')return `<div class="scard warn"><div class="srow"><b>${esc(cloudMetaLoad().user||'Account')}</b><span class="cb bad">signed out</span></div><p>Your sign-in expired. Projects on this device are safe — sign in again to resume syncing.</p><div class="pbtns"><button type="button" class="bb pri" data-ca="in">Sign in again</button></div></div>`;
+ if(!cloud.checked)return '<p class="muted">Checking for the cloud…</p>';
+ if(!cloud.avail)return `<div class="scard"><div class="srow"><b>Guest</b><span class="cb">this device only</span></div><p class="muted">${esc(CLOUD_WHY[cloud.why]||'')} Your projects are saved on this device.</p></div>`;
+ return `<div class="scard"><div class="srow"><b>Guest</b><span class="cb">this device only</span></div><p class="muted">Your projects are saved on this device. Sign in to keep a copy in the cloud and open it on your other devices.</p><div class="pbtns"><button type="button" class="bb pri" data-ca="in">Sign in</button><button type="button" class="bb" data-ca="new">Create an account</button></div></div>`}
+
+function cloudRenderAcct(el){
+ const was=!!(el.querySelector('details')||{}).open;
+ el.innerHTML=cloudAcctHTML();
+ const d=el.querySelector('details');if(d&&was)d.open=true;
+ el.onclick=e=>{const b=e.target.closest('[data-ca]');if(!b)return;
+  ({sync:cloudSyncNow,out:cloudSignOutUI,del:cloudDeletedList,pw:cloudPwUI,kill:cloudKillUI,in:()=>cloudAuthUI('in'),new:()=>cloudAuthUI('new')})[b.dataset.ca]()}}
+/** The sync engine calls this whenever its state changes. */
+function cloudUiChanged(){
+ if(modal.classList.contains('hidden'))return;
+ const el=mbox.querySelector('[data-acct]');if(el&&el.isConnected)cloudRenderAcct(el);
+ const tags=mbox.querySelectorAll('[data-cb]');
+ if(tags.length){const P=loadProjects();
+  tags.forEach(t=>{const id=t.dataset.cb;if(P[id])t.innerHTML=cloudRowBadge(id,P[id])});
+  mbox.querySelectorAll('[data-cbh]').forEach(t=>{t.innerHTML=cloudRowButtons(t.dataset.cbh)})}}
+function openAccount(){openModal('<h3>Account</h3><div data-acct></div><div class="mact"><button class="bb pri" data-close>Done</button></div>',box=>cloudRenderAcct(box.querySelector('[data-acct]')))}
+async function cloudSyncNow(){
+ if(cloud.busy)return;
+ const rep=await cloudSync('manual');
+ if(rep&&rep.ran&&cloud.state==='idle'&&!cloud.problem)toast(rep.pulled||rep.pushed?`Synced — ${rep.pulled} downloaded, ${rep.pushed} uploaded`:'Everything is up to date')}
+
+/** Submit handler with a shared error line: fn(FormData) returns an error text, or nothing on success. */
+function cloudForm(box,sel,fn){
+ const f=box.querySelector(sel),err=box.querySelector('#cErr'),go=f.querySelector('[type=submit]'),txt=go.textContent;
+ f.onsubmit=async e=>{e.preventDefault();err.hidden=true;go.disabled=true;go.textContent='Please wait…';
+  let m='';try{m=await fn(new FormData(f))}catch(x){console.error('[cloud]',x);m='Something went wrong. Please try again.'}
+  if(m){err.textContent=m;err.hidden=false;go.disabled=false;go.textContent=txt}}}
+
+function cloudMaybeWelcome(){
+ if(!cloud.avail||cloudOn()||cloud.state==='lost'||lsGet(LS_CL_WEL)||!modal.classList.contains('hidden'))return;
+ lsSet(LS_CL_WEL,'shown');
+ openModal(`<h3>Save your designs in the cloud?</h3>
+  <p>Create a free account to keep your projects online and open them on your phone, tablet and computer. Or carry on as a guest — everything is still saved on this device.</p>
+  <div class="mact stack"><button type="button" class="bb pri" data-w="new">Create an account</button><button type="button" class="bb" data-w="in">Sign in</button><button type="button" class="bb" data-close>Continue as guest</button></div>
+  <p class="muted">You can change this any time in the menu under Account.</p>`,box=>{
+  box.querySelector('.mact').onclick=e=>{const b=e.target.closest('[data-w]');if(b)cloudAuthUI(b.dataset.w)}})}
+
+function cloudAuthUI(mode,prefill){
+ const reg=mode==='new',last=cloudMetaLoad().user||'';
+ openModal(`<h3>${reg?'Create an account':'Sign in'}</h3>
+  <form id="cAuth" autocomplete="on" novalidate>
+   <label>Username<input name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="40" value="${esc(prefill||last)}"></label>
+   <label>Password<input name="password" type="password" autocomplete="${reg?'new-password':'current-password'}"></label>
+   ${reg?'<label>Repeat password<input name="password2" type="password" autocomplete="new-password"></label>':''}
+   ${reg&&cloud.invite?'<label>Invite code<input name="invite" autocomplete="off" autocapitalize="none" spellcheck="false"></label>':''}
+   <label class="row"><input type="checkbox" id="cShow">Show password</label>
+   <p class="cerr" id="cErr" hidden></p>
+   ${reg?'<p class="muted">Use at least 8 characters. There is no “forgot password” — your password is never kept anywhere we can read it. Every device keeps its own copy of your projects, so a lost password never costs you your designs.</p>':''}
+   <div class="mact"><button type="button" class="bb" data-close>Cancel</button><button type="submit" class="bb pri">${reg?'Create account':'Sign in'}</button></div>
+  </form>
+  <p class="muted" style="text-align:center;margin-top:12px">${reg?'Already have an account?':'New here?'} <button type="button" class="lnk" id="cSw">${reg?'Sign in':'Create an account'}</button></p>`,box=>{
+  const f=box.querySelector('#cAuth');
+  box.querySelector('#cShow').onchange=e=>f.querySelectorAll('[name^=password]').forEach(i=>{i.type=e.target.checked?'text':'password'});
+  box.querySelector('#cSw').onclick=()=>cloudAuthUI(reg?'in':'new',f.username.value);
+  cloudForm(box,'#cAuth',async fd=>{
+   const pw=fd.get('password');
+   if(reg&&pw!==fd.get('password2'))return 'The two passwords do not match.';
+   const res=await cloudAuth(reg?'register':'login',fd.get('username'),pw,fd.get('invite'));
+   if(res.error)return res.error;
+   cloudSignedIn(res)});
+  setTimeout(()=>{try{(f.username.value?f.password:f.username).focus()}catch(e){}},50)})}
+
+/** Projects already on this device from a different account are only added to the new one on request. */
+function cloudSignedIn(res){
+ const m=cloudMetaLoad(),n=Object.keys(loadProjects()).length;
+ if(!(m.user&&m.user!==res.user&&n))return cloudFinishSignIn(res,m);
+ const one=n===1;
+ openModal(`<h3>Add this device’s projects?</h3><p>${one?'The project':'The '+n+' projects'} on this device ${one?'was':'were'} saved while signed in as <b>${esc(m.user)}</b>. Add ${one?'it':'them'} to <b>${esc(res.user)}</b>’s account too?</p>
+  <div class="mact stack"><button type="button" class="bb pri" data-y>Add ${one?'it':'them'} to ${esc(res.user)}</button><button type="button" class="bb" data-n>Cancel sign-in</button></div>`,box=>{
+  box.querySelector('[data-y]').onclick=()=>cloudFinishSignIn(res,m);
+  box.querySelector('[data-n]').onclick=()=>{cloudApi('POST','/logout',undefined,{token:res.token,timeout:4000});closeModal()}})}
+async function cloudFinishSignIn(res,m){
+ for(let i=0;i<30&&cloud.busy;i++)await cloudSleep(100);
+ if(m.user!==res.user)cloudMeta(x=>{x.user=res.user;x.projects={};x.tombstones={}});
+ Object.assign(cloud,{user:res.user,token:res.token,state:'idle',err:'',note:'',pending:true,problem:0,blocked:0,bad:{},retry:0,last:0});
+ cloudSaveSession();lsSet(LS_CL_WEL,'user');
+ openAccount();toast('Signed in as '+res.user);
+ const rep=await cloudSync('login');
+ if(rep&&rep.ran&&(rep.pulled||rep.pushed))toast(`Synced — ${rep.pulled} downloaded, ${rep.pushed} uploaded`)}
+
+function cloudSignOutUI(){
+ const n=cloudUnsynced();
+ openModal(`<h3>Sign out</h3><p>Your projects stay safe in the cloud. What should happen to the copies on this device?</p>
+  ${n?`<p class="cct-warn">${cloudS(n,'project hasn’t','projects haven’t')} reached the cloud yet.</p>`:''}
+  <div class="mact stack"><button type="button" class="bb pri" id="oKeep">Sign out, keep them here</button><button type="button" class="bb danger" id="oClear">Sign out and clear this device</button><button type="button" class="bb" data-close>Cancel</button></div>
+  <p class="muted">“Clear this device” is for a shared or borrowed computer. Sign in again any time to download your projects.</p>`,box=>{
+  box.querySelector('#oKeep').onclick=async()=>{await cloudSignOut(false);openAccount();toast('Signed out')};
+  const clr=box.querySelector('#oClear');let armed=false;
+  clr.onclick=async()=>{
+   if(!armed){clr.disabled=true;clr.textContent='Syncing first…';await cloudSync('signout');clr.disabled=false;
+    const left=cloudUnsynced();
+    if(left){armed=true;clr.textContent=`Clear anyway (${left} not in the cloud)`;return}}
+   await cloudSignOut(true)}})}
+
+function cloudPwUI(){
+ openModal(`<h3>Change password</h3><form id="cPw" novalidate>
+  <label>Current password<input name="old" type="password" autocomplete="current-password"></label>
+  <label>New password<input name="n1" type="password" autocomplete="new-password"></label>
+  <label>Repeat new password<input name="n2" type="password" autocomplete="new-password"></label>
+  <p class="cerr" id="cErr" hidden></p><p class="muted">Your other devices will be signed out and need the new password.</p>
+  <div class="mact"><button type="button" class="bb" data-close>Cancel</button><button type="submit" class="bb pri">Change password</button></div></form>`,box=>{
+  cloudForm(box,'#cPw',async fd=>{
+   if(fd.get('n1')!==fd.get('n2'))return 'The two new passwords do not match.';
+   const r=await cloudChangePw(fd.get('old'),fd.get('n1'));
+   if(r.error)return r.error;
+   openAccount();toast('Password changed')})})}
+
+function cloudKillUI(){
+ openModal(`<h3>Delete account</h3><p>This permanently deletes <b>${esc(cloud.user)}</b> and every project stored in the cloud. Projects on this device are kept. It cannot be undone.</p>
+  <form id="cKill" novalidate><label>Enter your password to confirm<input name="pw" type="password" autocomplete="current-password"></label>
+  <p class="cerr" id="cErr" hidden></p>
+  <div class="mact"><button type="button" class="bb" data-close>Cancel</button><button type="submit" class="bb danger">Delete account</button></div></form>`,box=>{
+  cloudForm(box,'#cKill',async fd=>{
+   const r=await cloudDeleteAccount(fd.get('pw'));
+   if(r.error)return r.error;
+   openAccount();toast('Account deleted')})})}
+
+</script>
+<script>
+'use strict';
+/* =========================================================
+   Cloud extras — what the project list says about the cloud, earlier
+   versions of a project, and projects deleted in the last 90 days.
+   ========================================================= */
+const cloudDate=ts=>{const d=new Date(ts);return isNaN(d)?'':d.toLocaleString()};
+
+/** The small tag after a project's date in the Projects list. */
+function cloudRowBadge(id,rec){
+ if(!cloudOn())return '';
+ const m=cloudMetaLoad().projects[id],sig=cloudSigOf(rec,id),bad=cloud.bad[id];
+ if(bad&&bad.h===sig)return ` · <span class="cb bad" title="${esc(bad.msg)}">can’t sync</span>`;
+ if(m&&m.h===sig)return ' · <span class="cb ok">in the cloud</span>';
+ if(!m&&cloudIsSeed(id,rec))return ' · <span class="cb" title="The sample project is uploaded once you change it">this device only</span>';
+ return ` · <span class="cb pend">${m?'waiting to sync':'not uploaded yet'}</span>`}
+const cloudRowButtons=id=>cloudOn()&&cloudMetaLoad().projects[id]?`<button type="button" class="bb" data-hist="${esc(id)}">History</button>`:'';
+
+/** Fills the [data-list] box of the open modal from the cloud, or says why it can't. */
+async function cloudFill(box,path,render,empty){
+ const el=box.querySelector('[data-list]'),r=await cloudApi('GET',path);
+ if(!el.isConnected)return;
+ if(!r.ok){el.innerHTML=`<p class="cerr">${esc(r.json.error||'Could not reach the cloud.')}</p>`;return}
+ const rows=render(r.json);
+ el.innerHTML=rows||`<p class="muted">${empty}</p>`}
+
+/* ---------- earlier versions of one project ---------- */
+function cloudHistory(id){
+ const rec=loadProjects()[id];if(!rec||!cloudOn())return;
+ openModal(`<h3>History</h3><p><b>${esc(rec.name)}</b></p>
+  <p class="muted">While you work, the cloud keeps earlier versions of this project. Restoring adds an old version as a new project — nothing is overwritten.</p>
+  <div data-list><p class="muted">Loading…</p></div>
+  <div class="mact"><button type="button" class="bb" data-back>Back to projects</button><button type="button" class="bb pri" data-close>Done</button></div>`,box=>{
+  box.querySelector('[data-back]').onclick=openProjects;
+  cloudFill(box,'/projects/'+id+'/history',j=>(Array.isArray(j.versions)?j.versions:[]).map(x=>
+   `<div class="prow"><b>${esc(cloudDate(x.saved||x.updated))}</b><small>${esc(cloudName(x.name))} · ${fmtSize(+x.size||0)}${x.app?' · v'+esc(x.app):''}</small><div class="pbtns"><button type="button" class="bb" data-rev="${+x.rev}">Restore as a copy</button></div></div>`).join(''),
+   'No earlier versions yet — they build up as you keep editing.');
+  box.querySelector('[data-list]').onclick=e=>{const b=e.target.closest('[data-rev]');if(b)cloudRestoreCopy(id,+b.dataset.rev,b)}})}
+
+/** True when a version fetched from the cloud can be used; otherwise says why not. */
+function cloudVersionOk(r){
+ if(!r.ok||!validDoc(r.json.data)){toast(r.json.error||'Could not open that version.');return false}
+ if(cloudNewer(r.json.app)){toast('That was saved by a newer version of the app — update first.');return false}
+ return true}
+
+async function cloudRestoreCopy(id,rev,btn){
+ btn.disabled=true;
+ const r=await cloudApi('GET','/projects/'+id+'/history/'+rev);
+ btn.disabled=false;
+ if(!cloudVersionOk(r))return;
+ const v=r.json,P=loadProjects();
+ P[uid()]={name:cloudName(v.name).slice(0,80)+' (from '+cloudDate(v.saved||v.updated)+')',updated:Date.now(),appVersion:v.app||APP_VERSION,data:v.data};
+ if(!cloudWrite(P))return toast('Not enough room on this device for that version');
+ cloudChanged();toast('Added as a new project');openProjects()}
+
+/* ---------- deleted in the last 90 days ---------- */
+function cloudDeletedList(){
+ if(!cloudOn())return;
+ openModal(`<h3>Recently deleted</h3>
+  <p class="muted">Projects deleted in the last 90 days. Restoring brings back the last version that reached the cloud.</p>
+  <div data-list><p class="muted">Loading…</p></div>
+  <div class="mact"><button type="button" class="bb" data-back>Back</button><button type="button" class="bb pri" data-close>Done</button></div>`,box=>{
+  box.querySelector('[data-back]').onclick=openAccount;
+  cloudFill(box,'/projects',j=>(Array.isArray(j.projects)?j.projects:[]).filter(p=>p.deleted).sort((a,b)=>(b.saved||0)-(a.saved||0)).map(p=>
+   `<div class="prow"><b>${esc(cloudName(p.name))}</b><small>Deleted ${esc(cloudDate(p.saved))}</small><div class="pbtns"><button type="button" class="bb pri" data-id="${esc(p.id)}">Restore</button></div></div>`).join(''),
+   'Nothing has been deleted recently.');
+  box.querySelector('[data-list]').onclick=e=>{const b=e.target.closest('[data-id]');if(b)cloudRestoreDeleted(b.dataset.id,b)}})}
+
+/* The project comes back under its old id; the next sync sees a local copy of a deleted project and writes it over the delete. */
+async function cloudRestoreDeleted(id,btn){
+ btn.disabled=true;
+ const h=await cloudApi('GET','/projects/'+id+'/history'),top=h.ok?(h.json.versions||[])[0]:null;
+ if(!top){btn.disabled=false;return toast(h.ok?'No saved copy of that project is left.':h.json.error||'Could not reach the cloud.')}
+ const r=await cloudApi('GET','/projects/'+id+'/history/'+top.rev);
+ btn.disabled=false;
+ if(!cloudVersionOk(r))return;
+ const v=r.json,P=loadProjects();
+ if(P[id])return toast('That project is already back.');
+ P[id]={name:cloudName(v.name),updated:Date.now(),appVersion:v.app||APP_VERSION,data:v.data};
+ if(!cloudWrite(P))return toast('Not enough room on this device for that project');
+ cloudMeta(x=>{delete x.projects[id];delete x.tombstones[id]});
+ cloudChanged();toast('Restored');openProjects()}
 
 </script>
 </body>

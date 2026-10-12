@@ -14,7 +14,7 @@ function storageUse(){let n=0;
  return n}
 
 /* ---------- preferences ---------- */
-const prefsHTML=()=>`<section class="sec first"><h4>Preferences</h4>
+const prefsHTML=()=>`<section class="sec"><h4>Preferences</h4>
  <label>Wire colour scheme (Auto)<select id="pScheme">${Object.entries(SCHEMES).map(([k,v])=>`<option value="${k}" ${k===settings.scheme?'selected':''}>${v.name}</option>`).join('')}</select></label>
  <label class="row"><input type="checkbox" id="pSnap" ${settings.snap?'checked':''}>Snap free items to grid</label>
  <label class="row"><input type="checkbox" id="pLabels" ${settings.labels?'checked':''}>Show circuit labels</label></section>`;
@@ -40,6 +40,7 @@ function importBackup(o){
   P[uid()]={name:r.name.slice(0,80),updated:+r.updated||Date.now(),appVersion:String(r.appVersion||APP_VERSION),data:r.data};n++}
  if(!n)return toast('That backup has no projects in it');
  if(!lsSet(LS_P,JSON.stringify(P)))return toast('Not enough room on this device for that backup');
+ cloudChanged();
  toast(`Added ${n} project${n===1?'':'s'} from the backup`);openProjects()}
 
 async function persistCheck(box){
@@ -89,5 +90,5 @@ function renderApp(box){
 function settingsUpdated(){const a=mbox.querySelector('#sApp');if(a&&a.isConnected&&!modal.classList.contains('hidden'))renderApp(mbox)}
 
 function openSettings(){
- openModal(`<h3>Settings</h3><div id="sAlert"></div>${prefsHTML()}<section class="sec" id="sStore"></section><section class="sec" id="sApp"></section><div class="mact"><button class="bb pri" data-close>Done</button></div>`,box=>{
-  bindPrefs(box);renderStore(box);renderApp(box)})}
+ openModal(`<h3>Settings</h3><div id="sAlert"></div><section class="sec first"><h4>Account</h4><div data-acct></div></section>${prefsHTML()}<section class="sec" id="sStore"></section><section class="sec" id="sApp"></section><div class="mact"><button class="bb pri" data-close>Done</button></div>`,box=>{
+  cloudRenderAcct(box.querySelector('[data-acct]'));bindPrefs(box);renderStore(box);renderApp(box)})}

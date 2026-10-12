@@ -1,11 +1,12 @@
 {
-  "version": "2.12.0",
+  "version": "2.13.0",
   "date": "2026-10-12",
   "notes": [
-    "Settings now shows the version and can check for updates.",
-    "An orange dot on the menu button and a small banner tell you when a new version is out.",
-    "Back up every project to one file, and restore it again.",
-    "Ask the browser to protect your saved designs from being cleared.",
-    "Settings changes apply as soon as you make them."
+    "Accounts and cloud sync: sign in under Menu → Account and your projects follow you to any phone or browser. Using it without an account works exactly as before.",
+    "A coloured dot before the project name shows where your latest edit stands — green in the cloud, orange waiting, red needs attention.",
+    "Edited on two devices? Nothing is overwritten: both versions are kept, the other one as “… (cloud copy)”.",
+    "Projects → History restores earlier versions; Account → Recently deleted brings back projects deleted in the last 90 days.",
+    "There is no password reset — keep your password safe. Settings → Back up everything saves a file copy of every project.",
+    "The Projects list now counts items across every panel, not just the first."
   ]
 }

@@ -7,6 +7,8 @@
 # the deploy to actual site files.
 node_modules
 .git
+.wrangler
+.dev.vars
 .gitignore
 .assetsignore
 wrangler.jsonc
@@ -15,7 +17,9 @@ bun.lock
 bun.lockb
 package-lock.json
 
-# Dev-only, not part of the served site
+# Dev-only, not part of the served site. worker/ is the cloud API's source:
+# wrangler bundles it into the Worker, and it must not also be downloadable.
+worker
 tools
 CLAUDE.md
 HANDOVER.md
