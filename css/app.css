@@ -103,7 +103,10 @@ body.sheet-open #toast{bottom:calc(var(--sheetH) + 16px)}
 .toprow>*{pointer-events:auto}
 .toprow #titleChip{min-width:0;flex:0 1 auto}
 .seg{display:flex;flex:none;background:#fff;border-radius:12px;padding:3px;box-shadow:0 2px 10px rgba(0,0,0,.12)}
-.seg button{border:0;background:transparent;padding:7px 13px;border-radius:9px;font-weight:700;font-size:14px;color:#55555a}
+/* Three steps have to fit beside the title on a 360 px phone, so the
+   padding tightens below 420 px rather than the labels being shortened. */
+.seg button{border:0;background:transparent;padding:7px 11px;border-radius:9px;font-weight:700;font-size:14px;color:#55555a;white-space:nowrap}
+@media (max-width:420px){.seg button{padding:7px 8px;font-size:13px}}
 .seg button.on{background:#1c1c1e;color:#fff}
 .rt{display:flex;gap:6px;overflow-x:auto;max-width:100%;pointer-events:auto;background:#fff;border-radius:14px;padding:6px;box-shadow:0 4px 18px rgba(0,0,0,.13);scrollbar-width:none;align-items:stretch}
 .rt::-webkit-scrollbar{display:none}
@@ -120,10 +123,17 @@ body.sheet-open #toast{bottom:calc(var(--sheetH) + 16px)}
 .lbl{position:absolute;transform:translate(-50%,-100%);pointer-events:auto;cursor:pointer;background:#ffe14d;border:1.5px solid #1c1c1e;border-radius:5px;padding:1px 6px;font:800 11px/1.35 -apple-system,Arial,sans-serif;white-space:nowrap;color:#1c1c1e;box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .lbl.sel{background:#0a84ff;color:#fff;border-color:#0a84ff}
 #r3dMsg{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);background:#fff;border-radius:14px;padding:16px 18px;max-width:300px;text-align:center;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.15)}
-body.room #cv,body.room #wirebar,body.room #layers,body.room #bWire,body.room #bLayers{display:none!important}
-body:not(.room) #r2d,body:not(.room) #r3d,body:not(.room) #roomTabs{display:none!important}
-body.room.r3d #r2d{display:none}
-body.room:not(.r3d) #r3d{display:none}
+#pl2d{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;user-select:none;-webkit-user-select:none;background:#eceae4}
+/* Which mode is showing: body.m-plan (floor plan) or body.m-wiring
+   (walls / ceiling / 3D); neither = the panel designer. The panel's own
+   wire mode is body.wiring — a different thing, don't merge them. */
+body.m-plan #cv,body.m-plan #wirebar,body.m-plan #layers,body.m-plan #bWire,body.m-plan #bLayers,
+body.m-wiring #cv,body.m-wiring #wirebar,body.m-wiring #layers,body.m-wiring #bWire,body.m-wiring #bLayers{display:none!important}
+body:not(.m-wiring) #r2d,body:not(.m-wiring) #r3d{display:none!important}
+body:not(.m-plan) #pl2d{display:none!important}
+body:not(.m-wiring):not(.m-plan) #roomTabs{display:none!important}
+body.m-wiring.r3d #r2d{display:none}
+body.m-wiring:not(.r3d) #r3d{display:none}
 
 /* ---- circuits manager (room wiring) ---- */
 .cct{border:1px solid #e5e5ea;border-radius:12px;padding:10px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px}

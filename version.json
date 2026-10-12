@@ -1,12 +1,13 @@
 {
-  "version": "2.13.0",
+  "version": "2.14.0",
   "date": "2026-10-12",
   "notes": [
-    "Accounts and cloud sync: sign in under Menu → Account and your projects follow you to any phone or browser. Using it without an account works exactly as before.",
-    "A coloured dot before the project name shows where your latest edit stands — green in the cloud, orange waiting, red needs attention.",
-    "Edited on two devices? Nothing is overwritten: both versions are kept, the other one as “… (cloud copy)”.",
-    "Projects → History restores earlier versions; Account → Recently deleted brings back projects deleted in the last 90 days.",
-    "There is no password reset — keep your password safe. Settings → Back up everything saves a file copy of every project.",
-    "The Projects list now counts items across every panel, not just the first."
+    "Three steps, in order: Plan draws the rooms, Wiring fills one with points and circuits, Panel builds the board. The top switch moves between them.",
+    "New floor plan: every room of the project seen from above, with walls, doors, windows and the names, sizes and areas.",
+    "Drag a room to move it — pushed up against a neighbour it snaps so the two share one wall instead of ending up with two.",
+    "Drag the handle on a wall to resize a room, Rotate for a quarter turn, and drag a door or window along its wall or round a corner onto the next one.",
+    "Add rooms, doors and windows from the + library, and tap “Wire this room →” to carry straight on to the wiring.",
+    "Dimensions, Points and Cables can each be turned off, and the whole plan exports as a PNG or SVG drawing.",
+    "Fixed: duplicating a room no longer forgets which circuit each point was on."
   ]
 }

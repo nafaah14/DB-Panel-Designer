@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.13.0';
+const APP_VERSION='2.14.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -18,7 +18,9 @@ function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
 function lsSet(k,v){try{localStorage.setItem(k,v);return true}catch(e){return false}}
 function loadProjects(){try{return JSON.parse(lsGet(LS_P))||{}}catch(e){return {}}}
 function saveProjects(P){if(!lsSet(LS_P,JSON.stringify(P)))toast('Could not save — storage unavailable or full');else if(typeof cloudChanged==='function')cloudChanged()}
-let settings=Object.assign({mode:'panel',scheme:'redblue',snap:true,labels:true,wireColor:'auto',wireSize:2.5},(()=>{try{return JSON.parse(lsGet(LS_SET))||{}}catch(e){return {}}})());
+/* A first visit opens on the floor plan — step 1 of plan → wiring →
+   panel. Anyone who has been here before keeps the step they left. */
+let settings=Object.assign({mode:'plan',scheme:'redblue',snap:true,labels:true,wireColor:'auto',wireSize:2.5},(()=>{try{return JSON.parse(lsGet(LS_SET))||{}}catch(e){return {}}})());
 function saveSettings(){lsSet(LS_SET,JSON.stringify(settings))}
 
 /* ---------- colours ---------- */
@@ -208,8 +210,12 @@ let S={name:'Untitled panel',
  get wires(){return curPanel().wires},set wires(v){curPanel().wires=v},
  get layers(){return curPanel().layers},set layers(v){curPanel().layers=v},
  get defs(){return curPanel().defs},set defs(v){curPanel().defs=v}}, curId=null;
-/** Which designer is showing: 'panel' (DB board) or 'room' (walls / ceiling / 3D). Room code lives in js/room.js */
-let appMode=settings.mode==='room'?'room':'panel';
+/** Which step is showing: 'plan' (the floor plan, js/plan.js), 'wiring'
+ *  (a room's walls / ceiling / 3D, js/room.js) or 'panel' (the DB board,
+ *  here). 'room' is what the wiring step was called before 2.14 — saved
+ *  settings still say that. */
+let appMode=({plan:'plan',wiring:'wiring',room:'wiring'})[settings.mode]||'panel';
+const applyModeClass=()=>{document.body.classList.toggle('m-plan',appMode==='plan');document.body.classList.toggle('m-wiring',appMode==='wiring')};
 let sel=[], mode='select', pending=null, view={x:0,y:0,k:1};
 let undoS=[], redoS=[];
 const D=it=>DEFS[it.type];
@@ -356,7 +362,7 @@ function restore(js){const o=JSON.parse(js),keep=new Map(S.layers.map(l=>[l.id,{
  S.layers.forEach(l=>{const k=keep.get(l.id);if(k)Object.assign(l,k)});sel=[];pending=null;commit()}
 function doUndo(){if(!undoS.length)return;redoS.push(snap());restore(undoS.pop())}
 function doRedo(){if(!redoS.length)return;undoS.push(snap());restore(redoS.pop())}
-function commit(){invalidate();save();if(appMode==='room')roomRefresh();else render();updUI();renderLayers()}
+function commit(){invalidate();save();if(appMode==='wiring')roomRefresh();else if(appMode==='plan')drawPlan();else render();updUI();renderLayers()}
 function pruneWires(){S.wires=S.wires.filter(w=>termPos(w.a)&&termPos(w.b))}
 
 /* ---------- wire routing (obstacle-avoiding orthogonal A*) ---------- */
@@ -592,10 +598,13 @@ function thumb(type,props){const it=normalize({id:'x',type,props:{...DEFS[type].
  if(d.screw)for(const t of termsOf(it))g+=screw(t.x,t.y,d.screw);
  const pl=type==='comb'?40:8,pt=type==='supply'?22:8,pb=type==='outgoing'?24:8;
  return `<svg viewBox="${-pl} ${-pt} ${s.w+pl+8} ${s.h+pt+pb}" preserveAspectRatio="xMidYMid meet">${g}</svg>`}
-function renderTabs(){const LIB=appMode==='room'?ROOM_LIB:PANEL_LIB;if(curTab>=LIB.length)curTab=0;$('#tabs').innerHTML=LIB.map((t,i)=>`<button class="tab ${i===curTab?'on':''}" data-tab="${i}">${t.tab}</button>`).join('');
- $('#lib').innerHTML=LIB[curTab].groups.map(g=>`<h4>${g.g}</h4><div class="grid">${g.items.map(([t,p,n],j)=>`<button class="card" data-add="${t}" data-props='${esc(JSON.stringify(p))}' data-title="${esc(n)}">${appMode==='room'?roomThumb(t,p):thumb(t,p)}<span>${esc(n)}</span></button>`).join('')}</div>`).join('');$('#lib').scrollTop=0}
+const libFor=()=>appMode==='wiring'?ROOM_LIB:appMode==='plan'?PLAN_LIB:PANEL_LIB;
+const thumbFor=(t,p)=>appMode==='wiring'?roomThumb(t,p):appMode==='plan'?planThumb(t,p):thumb(t,p);
+function renderTabs(){const LIB=libFor();if(curTab>=LIB.length)curTab=0;$('#tabs').innerHTML=LIB.map((t,i)=>`<button class="tab ${i===curTab?'on':''}" data-tab="${i}">${t.tab}</button>`).join('');
+ $('#lib').innerHTML=LIB[curTab].groups.map(g=>`<h4>${g.g}</h4><div class="grid">${g.items.map(([t,p,n],j)=>`<button class="card" data-add="${t}" data-props='${esc(JSON.stringify(p))}' data-title="${esc(n)}">${thumbFor(t,p)}<span>${esc(n)}</span></button>`).join('')}</div>`).join('');$('#lib').scrollTop=0}
 $('#tabs').onclick=e=>{const b=e.target.closest('[data-tab]');if(!b)return;curTab=+b.dataset.tab;renderTabs()};
-$('#lib').onclick=e=>{const b=e.target.closest('[data-add]');if(!b)return;(appMode==='room'?roomAdd:addFromLib)(b.dataset.add,JSON.parse(b.dataset.props),b.dataset.title)};
+$('#lib').onclick=e=>{const b=e.target.closest('[data-add]');if(!b)return;
+ (appMode==='wiring'?roomAdd:appMode==='plan'?planAdd:addFromLib)(b.dataset.add,JSON.parse(b.dataset.props),b.dataset.title)};
 function setSheet(open){document.body.classList.toggle('sheet-open',open)}
 $('#bAdd').onclick=()=>setSheet(!document.body.classList.contains('sheet-open'));
 (()=>{let y0=null;const g=$('#grip');g.addEventListener('pointerdown',e=>{y0=e.clientY;try{g.setPointerCapture(e.pointerId)}catch(_){}});g.addEventListener('pointerup',e=>{if(y0==null)return;const dy=e.clientY-y0;y0=null;if(dy>30||Math.abs(dy)<6)setSheet(false)})})();
@@ -618,7 +627,7 @@ function layerSel(){const ls=new Set(sel.map(s=>objOf(s)?.layer));const cur=ls.s
  return `<label class="lsel">Layer<select class="bb" data-mvl>${cur?'':'<option value="" selected disabled>Mixed</option>'}${S.layers.slice().reverse().map(l=>`<option value="${esc(l.id)}" ${l.id===cur?'selected':''}>${esc(l.name)}${l.visible?'':' (hidden)'}${l.locked?' (locked)':''}</option>`).join('')}</select></label>`}
 function updButtons(){$('#modeSw').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.mode===appMode));$('#bUndo').disabled=!undoS.length;$('#bRedo').disabled=!redoS.length;$('#bWire').classList.toggle('on',mode==='wire');
  $('#bLayers').classList.toggle('on',!$('#layers').classList.contains('hidden'));$('#bLayers').classList.toggle('dot',S.layers&&S.layers.some(l=>!l.visible))}
-function updUI(){if(appMode==='room'){updButtons();$('#wirebar').classList.add('hidden');return roomUpdUI()}
+function updUI(){if(appMode!=='panel'){updButtons();$('#wirebar').classList.add('hidden');return appMode==='plan'?planUpdUI():roomUpdUI()}
  pruneSel();updButtons();$('#roomTabs').innerHTML='';document.body.classList.toggle('wiring',mode==='wire');
  const wb=$('#wirebar'),sb=$('#selbar');
  if(mode==='wire'){const L=layerOf(S.defs.wires);wb.classList.remove('hidden');wb.innerHTML=`<div class="ttl">Wiring<small>→ layer “${esc(L.name)}”</small></div>${chips(settings.wireColor,'data-wc')}${sizeSel(settings.wireSize,'data-ws')}<button class="bb pri" data-act="wdone">Done</button><div class="hint">${pending?'Now tap the destination terminal (tap the same one to cancel).':'Tap a terminal to start a wire. Wires route around devices automatically.'}</div>`}else wb.classList.add('hidden');
@@ -657,12 +666,18 @@ $('#bars').addEventListener('change',e=>{const t=e.target;
  if(t.hasAttribute('data-mvl')&&t.value)moveSelTo(t.value)});
 function setMode(m){mode=m;pending=null;if(m==='wire'){sel=[];multi=false}render();updUI();if(m==='wire'){setSheet(false);toast('Wire mode — tap two terminals')}}
 $('#bWire').onclick=()=>setMode(mode==='wire'?'select':'wire');
-$('#bUndo').onclick=doUndo;$('#bRedo').onclick=doRedo;$('#bFit').onclick=()=>appMode==='room'?roomFit():fit();$('#bShare').onclick=()=>appMode==='room'?roomExport():exportPNG();$('#bMenu').onclick=openMenu;
+$('#bUndo').onclick=doUndo;$('#bRedo').onclick=doRedo;
+$('#bFit').onclick=()=>appMode==='wiring'?roomFit():appMode==='plan'?planFit():fit();
+$('#bShare').onclick=()=>appMode==='wiring'?roomExport():appMode==='plan'?planExport():exportPNG();
+$('#bMenu').onclick=openMenu;
 $('#titleChip').onclick=openProjects;
-/** Switch between the panel designer and the room designer. */
-function setAppMode(m){if(m===appMode)return;if(appMode==='panel'&&mode==='wire')setMode('select');appMode=m;settings.mode=m;saveSettings();sel=[];multi=false;
- document.body.classList.toggle('room',m==='room');if(m==='room')toggleLayers(false);curTab=0;renderTabs();
- if(m==='room')roomEnter();else{roomLeave();render();requestAnimationFrame(fit)}updUI()}
+/** Move between the three steps: floor plan → wiring → panel. */
+function setAppMode(m){if(m===appMode)return;if(appMode==='panel'&&mode==='wire')setMode('select');
+ const from=appMode;appMode=m;settings.mode=m;saveSettings();sel=[];multi=false;
+ applyModeClass();if(m!=='panel')toggleLayers(false);curTab=0;renderTabs();
+ if(from==='wiring')roomLeave();else if(from==='plan')planLeave();
+ if(m==='wiring')roomEnter();else if(m==='plan')planEnter();else{render();requestAnimationFrame(fit)}
+ updUI()}
 $('#modeSw').onclick=e=>{const b=e.target.closest('[data-mode]');if(b)setAppMode(b.dataset.mode)};
 
 /* ---------- UI: layers panel ---------- */
@@ -720,10 +735,12 @@ function openProps(id){const it=find(id);if(!it)return;const d=D(it);
    afterPropChange(it);closeModal();commit()}})}
 function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="projects">Projects <small>${esc(S.name)}</small></button>
- <button data-m="mode">${appMode==='room'?'Panel designer':'Room designer'} <small>switch</small></button>${appMode==='room'?'<button data-m="roomset">Room settings <small>size, wall names</small></button>':''}
+ ${[['plan','Floor plan','step 1 · rooms, walls, doors'],['wiring','Wiring','step 2 · points, circuits, 3D'],['panel','Panel','step 3 · the board']]
+   .map(([m,t,s])=>`<button data-m="go-${m}">${t} <small>${appMode===m?'you are here':s}</small></button>`).join('')}
+ ${appMode!=='panel'?'<button data-m="roomset">Room settings <small>size, wall names</small></button>':''}
  <button data-m="panels">Panels <small>${S.panels.length>1?esc(curPanel().name)+' · '+S.panels.length:'add, switch, duplicate'}</small></button>
  <button data-m="cct">Circuits <small>${curPanel().circuits.length} on this panel</small></button>
- <button data-m="bom">Bill of materials <small>BOM & rail usage</small></button>${appMode==='room'?'<button data-m="sheet">Elevations sheet <small>all walls + ceiling, one page</small></button>':'<button data-m="encl">Panel size &amp; fit <small>enclosure, does it fit</small></button>'}
+ <button data-m="bom">Bill of materials <small>BOM & rail usage</small></button>${appMode==='wiring'?'<button data-m="sheet">Elevations sheet <small>all walls + ceiling, one page</small></button>':appMode==='panel'?'<button data-m="encl">Panel size &amp; fit <small>enclosure, does it fit</small></button>':''}
  <button data-m="png">Export image <small>PNG</small></button>
  <button data-m="svg">Export drawing <small>SVG</small></button>
  <button data-m="json">Export project <small>.json</small></button>
@@ -736,12 +753,17 @@ function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="help">How to use</button>
  <button data-m="about">About <small>v${APP_VERSION}</small></button></div><div class="mact"><button class="bb" data-close>Close</button></div>`,box=>{
  box.querySelector('.mlist').onclick=e=>{const b=e.target.closest('[data-m]');if(!b)return;const m=b.dataset.m;closeModal();
-  ({projects:openProjects,mode:()=>setAppMode(appMode==='room'?'panel':'room'),roomset:()=>openRoomSettings(),bom:openBOM,sheet:()=>roomSheet(),encl:openEncl,panels:openPanels,cct:openCircuits,png:()=>appMode==='room'?roomExport():exportPNG(),svg:()=>appMode==='room'?roomExport(true):shareOrDownload(new Blob([exportSVG().svg],{type:'image/svg+xml'}),fname()+'.svg'),json:exportJSON,import:()=>$('#fileIn').click(),
+  ({projects:openProjects,'go-plan':()=>setAppMode('plan'),'go-wiring':()=>setAppMode('wiring'),'go-panel':()=>setAppMode('panel'),
+   roomset:()=>openRoomSettings(),bom:openBOM,sheet:()=>roomSheet(),encl:openEncl,panels:openPanels,cct:openCircuits,
+   png:()=>appMode==='wiring'?roomExport():appMode==='plan'?planExport():exportPNG(),
+   svg:()=>appMode==='wiring'?roomExport(true):appMode==='plan'?planExport(true):shareOrDownload(new Blob([exportSVG().svg],{type:'image/svg+xml'}),fname()+'.svg'),json:exportJSON,import:()=>$('#fileIn').click(),
    clearw:()=>{if(!S.wires.length)return toast('No wires');if(confirm('Remove all wires?')){pushUndo();S.wires=[];sel=[];commit()}},layers:()=>toggleLayers(true),
    rerouteall:()=>{if(!S.wires.some(w=>w.path))return toast('All wires are already auto-routed');pushUndo();S.wires.forEach(w=>delete w.path);commit();toast('Wires re-routed')},settings:openSettings,account:openAccount,help:openHelp,
    about:()=>openModal(`<h3>DB Panel Designer</h3><p class="muted">Version ${APP_VERSION}<br>Panel + room designer · saved on this device, and in the cloud when you sign in.<br>3D by three.js (MIT).</p><div class="mact"><button class="bb pri" data-close>OK</button></div>`)})[m]()}})}
 /* openSettings() — preferences, storage, version and updates — is in settings.js */
 function openHelp(){openModal(`<h3>How to use</h3><div class="help">
+ <p><b>Three steps, in order:</b> <i>Plan</i> draws the rooms, <i>Wiring</i> fills a room with points and circuits, <i>Panel</i> builds the board those circuits come from. Switch at the top; the same project holds all three.</p>
+ <p><b>Floor plan:</b> tap + for room sizes, doors and windows. Drag a room to move it — pushed against a neighbour it snaps so the two share one wall. Drag the square handle on a wall to resize, <i>Rotate</i> for a quarter turn. Drag a door or window along its wall, or round a corner onto the next one. <i>Wire this room →</i> takes it to step 2. Toggle dimensions, points and cables in the bar.</p>
  <p><b>Add parts:</b> tap + to open the library, then tap a part. Devices drop into the first free space on a DIN rail.</p>
  <p><b>Move:</b> drag a device along or between rails — it snaps to module positions. Drag it off a rail to place it freely. Rails and enclosures must be selected first before dragging.</p>
  <p><b>Edit:</b> tap a part to select, tap again (or Edit) to change rating, poles, curve, label etc.</p>
@@ -750,8 +772,8 @@ function openHelp(){openModal(`<h3>How to use</h3><div class="help">
  <p><b>Layers:</b> tap the layers button. Use the eye to show/hide and the lock to freeze a layer. Add layers, rename them with ⋯, and choose which layer new parts and new wires go on. Move things between layers with the Layer dropdown in the selection bar or <i>Move selected here</i>.</p>
  <p><b>Multi-select:</b> tap <i>Select more</i> (or Shift/Ctrl-click) to pick several parts and wires, then move them to a layer or delete them together.</p>
  <p><b>Navigate:</b> drag empty space to pan, pinch or mouse-wheel to zoom, ⤢ to fit.</p>
- <p><b>Room designer:</b> switch to <i>Room</i> at the top. Pick a wall (A–D) or the ceiling to place points on a flat view with heights and distances, then open <i>3D</i> to see the whole room — drag to rotate, pinch to zoom, two fingers to pan. Tap a wall in 3D to edit it.</p>
- <p><b>Keys:</b> W wire mode · L layers · Del delete · Ctrl+Z / Ctrl+Y · Ctrl+D copy · Esc deselect.</p>
+ <p><b>Wiring a room:</b> switch to <i>Wiring</i> at the top. Pick a wall (A–D) or the ceiling to place points on a flat view with heights and distances, then open <i>3D</i> to see the whole room — drag to rotate, pinch to zoom, two fingers to pan. Tap a wall in 3D to edit it. <i>🏠 Rooms</i> switches between the rooms you drew in the plan.</p>
+ <p><b>Keys:</b> W wire mode · L layers · Del delete · Ctrl+Z / Ctrl+Y · Ctrl+D copy · Esc deselect · in the plan, R rotates and the arrow keys nudge.</p>
  <p class="muted">Everything autosaves on this device. Sign in under Menu → Account to keep a copy in the cloud and open your projects on your other devices. Export project and Settings → Back up everything make a file copy.</p></div><div class="mact"><button class="bb pri" data-close>Got it</button></div>`)}
 
 /* ---------- projects ---------- */
@@ -771,7 +793,9 @@ function demoDoc(){const it=[];const mk=(type,props,extra)=>{const o=normalize({
  it.forEach(o=>{if(!o.layer)o.layer='base'});
  return {name:'Demo — 1φ house DB',items:it,wires,layers:[{id:'base',name:'Components',visible:true,locked:false},{id:'earth',name:'Earthing',visible:true,locked:false},{id:'wires',name:'Wires',visible:true,locked:false}],defs:{items:'base',wires:'wires'},room:demoRoom()}}
 function loadDoc(id){const P=loadProjects(),rec=P[id];if(!rec)return false;curId=id;S=migrate({name:rec.name,...(rec.data||{})});
- pruneWires();invalidate();undoS=[];redoS=[];sel=[];multi=false;pending=null;lsSet(LS_C,id);roomReset();if(appMode==='room')roomRefresh(true);else{render();requestAnimationFrame(fit)}updUI();renderLayers();return true}
+ pruneWires();invalidate();undoS=[];redoS=[];sel=[];multi=false;pending=null;lsSet(LS_C,id);roomReset();planReset();
+ if(appMode==='wiring')roomRefresh(true);else if(appMode==='plan')planRefresh(true);else{render();requestAnimationFrame(fit)}
+ updUI();renderLayers();return true}
 function newProject(doc){save();curId=uid();S=migrate(doc);save();loadDoc(curId)}
 /** "12 items · 9 wires" across every panel of a saved project (older saves hold a single flat panel). */
 function projCount(d){const ps=d&&Array.isArray(d.panels)?d.panels:[d||{}],n=k=>ps.reduce((a,p)=>a+(p[k]||[]).length,0);return `${n('items')} items · ${n('wires')} wires`}
@@ -920,13 +944,16 @@ window.addEventListener('error',e=>toast('Error: '+e.message));
 window.addEventListener('unhandledrejection',e=>toast('Error: '+((e.reason&&e.reason.message)||e.reason)));
 let tt=0;function toast(s){const t=$('#toast');t.textContent=s;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),2200)}
 document.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea')||!modal.classList.contains('hidden'))return;const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKey;
- if(appMode==='room'&&roomKey(e,k,c))return;
+ if(appMode==='wiring'&&roomKey(e,k,c))return;
+ if(appMode==='plan'&&planKey(e,k,c))return;
  if(c&&k==='z'){e.preventDefault();e.shiftKey?doRedo():doUndo()}else if(c&&k==='y'){e.preventDefault();doRedo()}else if(c&&k==='d'){e.preventDefault();dupSel()}
  else if(k==='delete'||k==='backspace'){if(sel.length){e.preventDefault();delSel()}}else if(k==='l'&&!c)toggleLayers();else if(k==='escape'){if(mode==='wire')setMode('select');else select(null)}else if(k==='w'&&!c)setMode(mode==='wire'?'select':'wire')});
 document.addEventListener('gesturestart',e=>e.preventDefault());
 
 /* ---------- boot ---------- */
-window.addEventListener('DOMContentLoaded',function boot(){document.body.classList.toggle('room',appMode==='room');if(appMode==='room')roomEnter(true);renderTabs();const P=loadProjects();let id=lsGet(LS_C);
+window.addEventListener('DOMContentLoaded',function boot(){applyModeClass();
+ if(appMode==='wiring')roomEnter(true);else if(appMode==='plan')planEnter(true);
+ renderTabs();const P=loadProjects();let id=lsGet(LS_C);
  if(!id||!P[id]){const ids=Object.keys(P).sort((a,b)=>(P[b].updated||0)-(P[a].updated||0));id=ids[0]||null}
  if(id&&loadDoc(id))return;
  curId=uid();const d=demoDoc();S=migrate(d);save();loadDoc(curId);cloudMarkSeed(curId)});

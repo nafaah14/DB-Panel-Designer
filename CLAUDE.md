@@ -1,6 +1,8 @@
 # DB Panel Designer — project notes for Claude Code
 
-Internal tool for designing **distribution boards (DB panels)** and **room electrical layouts** (switches, sockets, lights, fans) with a 3D preview. Built for STELCO Malé Power Generation work, used mostly on a phone.
+Internal tool for electrical design in three steps — **floor plan → wiring → panel** — covering **room layouts** (switches, sockets, lights, fans, industrial gear) with a 3D preview and the **distribution board** they run from. Built for STELCO Malé Power Generation work, used mostly on a phone.
+
+`appMode` is the step on screen: `'plan'` (js/plan.js) · `'wiring'` (js/room.js — called `'room'` before 2.14, and still named room* throughout that file) · `'panel'` (js/panel.js). Body classes `m-plan` / `m-wiring` drive which canvas shows; `body.wiring` is the panel's own wire mode, a different thing.
 
 ## Run / build / deploy
 - No build step needed for development. Open `index.html` via a local server: `npm run serve` → http://localhost:5173
@@ -16,7 +18,8 @@ Internal tool for designing **distribution boards (DB panels)** and **room elect
 | `index.html` | App shell: canvases, top bars, floating buttons, bottom parts sheet, modal |
 | `css/app.css` | All styles (mobile-first; ≥900 px puts the parts sheet on the left) |
 | `js/panel.js` | Panel designer + shared app code: storage, projects, undo/redo, modals, toasts, menus, BOM, export, boot |
-| `js/room.js` | Room designer: item library, 2D wall/ceiling editor, Three.js 3D view |
+| `js/room.js` | Wiring step: one room's item library, 2D wall/ceiling editor, Three.js 3D view, circuits, conduit |
+| `js/plan.js` | Floor plan step: places the rooms next to each other and draws the whole floor from above |
 | `js/update.js` | Update check: reads `version.json`, compares with `APP_VERSION`, drives the menu dot and the `#updbar` banner |
 | `js/settings.js` | Menu → Settings: preferences, storage + backup/restore, version + update controls, Account section |
 | `js/cloud.js` | Cloud (2.13): state, session, auth calls (`cloudApi`, never throws), change-pw/delete-account, sign-out, scheduling, status dot, boot |
@@ -33,11 +36,11 @@ Internal tool for designing **distribution boards (DB panels)** and **room elect
 | `tools/build-standalone.mjs` | Inlines every `<script src>` / stylesheet into one HTML file (new scripts need no change here) |
 | `tools/bump.mjs` | Release helper: version everywhere + `version.json` + rebuild |
 
-Scripts are classic `<script>` tags sharing one global scope (top-level `const`/`let` are visible across files, so a duplicate top-level name in two files throws — but they are **not** properties of `window`, so from DevTools or an iframe reach them with `win.eval('name')`). Load order: three → panel → room → update → settings → cloud → cloud-sync → cloud-ui → cloud-hist. Boot runs on `DOMContentLoaded` (end of `panel.js`) so everything is defined first. `panel.js` calls into the cloud files (`cloudChanged`, `cloudRowBadge`, …) only from event handlers and boot, never at load time, so the order above is safe — keep it that way.
+Scripts are classic `<script>` tags sharing one global scope (top-level `const`/`let` are visible across files, so a duplicate top-level name in two files throws — but they are **not** properties of `window`, so from DevTools or an iframe reach them with `win.eval('name')`). `cat` the files together and `node --check` the result to catch a clash before loading the app. Load order: three → panel → room → plan → update → settings → cloud → cloud-sync → cloud-ui → cloud-hist. Boot runs on `DOMContentLoaded` (end of `panel.js`) so everything is defined first. `panel.js` calls into the cloud files (`cloudChanged`, `cloudRowBadge`, …) only from event handlers and boot, never at load time, so the order above is safe — keep it that way.
 
 ## Data model (localStorage)
-- `pdes.projects.v1` → `{ [projectId]: { name, updated, appVersion, data } }`, `pdes.current`, `pdes.settings` (`mode, scheme, snap, labels, wireColor, wireSize, autoUpdate`), `pdes.upd` (last update-check result + which version's banner was dismissed); cloud (2.13): `pdes.cloud.session`, `pdes.cloud.meta`, `pdes.cloud.welcome`, `pdes.cloud.seed` — see "Accounts & cloud sync"
-- `data = { panels, panelId, rooms, roomId }` — `migrate()` in panel.js upgrades older projects; `normRoom()` in room.js fills room defaults.
+- `pdes.projects.v1` → `{ [projectId]: { name, updated, appVersion, data } }`, `pdes.current`, `pdes.settings` (`mode, scheme, snap, labels, wireColor, wireSize, autoUpdate, plDims, plPts, plRuns`), `pdes.upd` (last update-check result + which version's banner was dismissed); cloud (2.13): `pdes.cloud.session`, `pdes.cloud.meta`, `pdes.cloud.welcome`, `pdes.cloud.seed` — see "Accounts & cloud sync"
+- `data = { panels, panelId, rooms, roomId }` — `migrate()` in panel.js upgrades older projects; `normRoom()` in room.js fills room defaults, including `plan` (2.14: `{x,z,rot}` or `null` = not placed yet).
 - **`S.items` / `S.wires` / `S.layers` / `S.defs` are accessors onto the current panel**, installed by `bindPanelViews()`. They are not copies: seven places reassign them outright (`S.wires=S.wires.filter(…)`), and a setter is what makes those writes land in the right panel. Reassign `S.panels` itself when replacing the list (see `restore()`), never the views.
 - Undo/redo snapshots the whole `data` JSON (`pushUndo()` before a change, then `commit()` / `roomCommit()`).
 
@@ -84,14 +87,26 @@ A **service worker from another localhost project** (Daybook, cache `daybook-she
 
 ## Roadmap
 - **v2: room wiring — done (2.1–2.3).** See "Room wiring" above.
-- **v3 — done bar the floor plan:** panel-breaker links (2.4), elevations sheet (2.5), multiple rooms (2.6).
+- **v3 — done:** panel-breaker links (2.4), elevations sheet (2.5), multiple rooms (2.6), floor plan (2.14).
 - **Done since:** real wiring topology (2.7), panel size + fit check (2.8), multiple panels (2.9), room DB ↔ panel with circuits owned by the panel (2.10), industrial equipment + control-gear chains + circuit phase (2.11).
-- **Wanted next, in the user's words:** a **control panel mode** — a third library beside the domestic panel one, for power supplies, relays, terminal rails, pilot lights, push buttons and the like. The panel library stays domestic; this is a sibling, not a replacement. Likely shape: a `kind` on each panel (`'db' | 'control'`) choosing which `PANEL_LIB` it shows, since panels are already a list.
+- **Wanted next, in the user's words:** a **control panel mode** — a third library beside the domestic panel one, for power supplies, relays, terminal rails, pilot lights, push buttons and the like. The panel library stays domestic; this is a sibling, not a replacement. Likely shape: a `kind` on each panel (`'db' | 'control'`) choosing which `PANEL_LIB` it shows, since panels are already a list. (The user deferred this with "in the future" when the floor plan was chosen first.)
 - **Settings, version, updates, whole-device backup, persist() — done (2.12).** See "Settings & updates" below.
 - **Accounts, cloud sync and guest use — done (2.13).** Motivation: everything was in `localStorage` on one device, and iOS Safari evicts script-written storage from sites not opened for ~7 days. See "Accounts & cloud sync" below. Not built: sharing a project between accounts; offline support (a service worker, if ever added, must be scoped to the production host only).
 - Not done: a floor-standing / MCC board (`db` is wall-mounted, and `depth` is read as a plain number in several places, so a per-form depth needs an `idep(it)` helper first); cable tray and trunking as drawn linear items.
-- **Next structural piece: the floor plan.** Rooms exist as a list but have no position relative to each other, which is what a floor plan needs — at minimum an x/y offset and a rotation per room, then a plan view that draws them together. Worth settling first: do adjacent rooms share a wall, or does each keep its own four?
+- **Floor plan, and the three-step split — done (2.14).** The open question (shared walls or four each?) was settled as **each room keeps its own four walls**: the wiring, the 3D view and every item coordinate are built on walls A–D, so the plan adds only `{x,z,rot}` per room and snapping makes the two strips coincide so a partition *draws* as one. See "Floor plan" below.
+- Floor-plan gaps, all deliberate for a first cut: rooms are rectangles only (an L-shape means two rooms), rotation is quarter turns, only openings can be moved from the plan (points belong to the wiring step), and there is no building outline, roof, storey or stair.
 - Still not done, deliberately: conduit is radial (each point measured back to the board, not looped in), cable colours aren't split L/N/E, and junction boxes aren't used as routing waypoints.
+
+### Floor plan (js/plan.js, 2.14)
+- `room.plan = {x,z,rot}` (mm, `rot` ∈ 0/90/180/270) positions the room's **local origin** — the corner where Wall D meets Wall A — on the plan; local x runs along Wall A, local z along Wall B. `null` = not placed yet, which is what rooms from older projects and from the wiring step's "+ Add room" arrive as; `planEnsure()` gives those a spot (in a row, `PLGAP` apart) and is called on every enter/refresh/draw, saving only when it actually wrote.
+- Rotations are **whole quarter turns** and the sin/cos table (`PLQ`) holds exact integers, so two rooms snapped together coincide to the millimetre rather than to a rounding error — which is what makes a shared wall possible at all. It also keeps every room's rectangle axis-aligned in plan space (`planInner`/`planOuter`), so snapping is plain coordinate comparison.
+- **Shared walls.** `planMoveTo` snaps the gap between two facing inner faces to exactly one wall thickness, so both rooms' wall strips land in the same place and the partition draws as one wall. Flush faces and the room's **own current position** are candidates too — the latter so a neighbour inside the snap distance can't drag a room off its spot before the finger has moved. `planResize` uses the same candidates on the dragged wall's axis (`plEdgeCands` maps them into the room's local frame).
+- **Drawn in layers, not room by room**: all floors → all wall strips → all openings cut in paper colour → symbols → points/conduit → labels and dimensions. An opening in a shared wall belongs to one room but has to show from both sides, and a later room's solid strip would paint over an earlier room's door. Paper and floor are the same colour, so a cut reads as a gap from either side and no SVG mask is needed (masks make the PNG export fragile).
+- Hit targets are a separate layer after the drawing (`dec` / `hit` / `hnd` in `drawPlan`), because in SVG the **last** element painted is the one a tap lands on: rooms, then openings over them, then the resize handles last — handles sit over their own room, so they must come after it.
+- Walls A–D in 2D (`wallLocal`) are the shadow of `wallGeo()` in room.js and must agree with it, or doors swing out of the room. `planItemPt` nudges wall items inside so the marker clears the wall (further for the DB box).
+- Gestures: drag a room, drag a wall handle, drag an opening (`planNearestWall` re-homes it on whichever wall is closest, corners included). Both the handle and the opening take out the **grab offset**, or the wall jumps to the finger. Resizing clamps the room's items through `withRoom(r,…clampItem)`.
+- Selecting a room in the plan also makes it the current room (`switchRoom`), so *Wire this room →*, ⚙ Room and the Edit forms in room.js all act on what is selected. `roomCommit()` redraws the plan when that is the view on screen.
+- The plan's library is `PLAN_LIB` + `planThumb` + `planAdd` — the third branch of `renderTabs()` / `$('#lib')`. Export sizes text from the floor's extent, not the current zoom, and takes only the drawing layer.
 
 ### Settings & updates (js/update.js, js/settings.js, 2.12)
 - **Update check:** `updCheck()` fetches `version.json` with `cache:'no-store'` (10 s timeout) and resolves `'ok'|'offline'|'unsupported'|'error'`, never throwing. It runs ~2.5 s after boot, on `visibilitychange` (if the last check is >45 min old), on `online`, and every 2 h while visible; `settings.autoUpdate===false` turns the automatic ones off. `file:` → `'unsupported'`.
@@ -124,6 +139,7 @@ A **service worker from another localhost project** (Daybook, cache `daybook-she
 - Don't point a Chrome-automation session's dialogs at `confirm`/`prompt`: the Projects Delete and Rename handlers use the native ones, which freeze the extension unless overridden first.
 
 ### Rooms (2.6)
+- Structural changes — add, duplicate, position, resize — go through plan.js (`planAddRoom`, `planDupRoom`, `planDelRoom`) wherever they are triggered from, so a new room always has a spot on the plan. `cloneRoom()` in room.js is the deep copy both use.
 - `S.rooms` = `[room,…]`, `S.roomId` = the one being edited; `RM()` resolves it and is how every read in room.js gets the current room. `withRoom(r,fn)` runs something against another room and restores — used by the BOM, which covers all rooms.
 - `migrate()` wraps a pre-2.6 single `doc.room` into the list, so old projects and exported JSON still open.
-- Duplicating a room re-ids everything and remaps `props.circuit` and `props.controls` onto the copies; forgetting either would leave the copy pointing at the original's objects.
+- Duplicating a room (`cloneRoom`) re-ids everything and remaps `props.controls` onto the copies; forgetting that would leave the copy driving the original's lights. `props.circuit` is **kept as it is** unless the id belongs to a room-level circuit from before 2.10 — circuits live on the panel now and both rooms are fed by the same board. Remapping it unconditionally (the 2.10–2.13 behaviour) cleared every point's circuit, since `cmap` is empty for any modern project.

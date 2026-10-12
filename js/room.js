@@ -1,7 +1,9 @@
 'use strict';
 /* =========================================================
-   Room designer v1  (part of DB Panel Designer)
+   Room designer — the "Wiring" step  (part of DB Panel Designer)
    ---------------------------------------------------------
+   • Edits ONE room: the floor plan (js/plan.js) is what places the rooms
+     next to each other, and `appMode==='wiring'` is this file's mode.
    • Each wall (A–D) and the ceiling is edited as a flat 2D view (SVG, units = mm).
    • The 3D view is generated from the same data with Three.js r149 (vendor/three.min.js).
    • Shares globals with js/panel.js: S, settings, pushUndo, save, updUI, toast, openModal,
@@ -32,10 +34,15 @@ const RM=()=>{const rs=S.rooms;if(!Array.isArray(rs)||!rs.length)return null;
 function withRoom(r,fn){const keep=S.roomId;S.roomId=r.id;try{return fn()}finally{S.roomId=keep}}
 
 /* ---------- room model ---------- */
-function defaultRoom(){return {id:'',name:'Room 1',w:3600,l:3000,h:2700,t:150,walls:{A:'North',B:'East',C:'South',D:'West'},items:[],circuits:[]}}
+function defaultRoom(){return {id:'',name:'Room 1',w:3600,l:3000,h:2700,t:150,walls:{A:'North',B:'East',C:'South',D:'West'},items:[],circuits:[],plan:null}}
 function normRoom(r){const d=defaultRoom();const o=Object.assign(d,r||{});o.walls=Object.assign(defaultRoom().walls,(r&&r.walls)||{});
  o.id=String(o.id||uid());o.name=String(o.name||'Room').trim()||'Room';
  ['w','l','h','t'].forEach(k=>o[k]=Math.max(k==='t'?50:1000,+o[k]||d[k]));
+ /* Where the room sits on the floor plan (2.14). `null` means "not
+    placed yet" — planEnsure() in plan.js gives those a spot, which is
+    how rooms from older projects arrive. */
+ o.plan=(o.plan&&isFinite(+o.plan.x)&&isFinite(+o.plan.z))
+  ?{x:Math.round(+o.plan.x),z:Math.round(+o.plan.z),rot:((Math.round((+o.plan.rot||0)/90)%4)+4)%4*90}:null;
  o.items=(Array.isArray(o.items)?o.items:[]).filter(i=>i&&RDEFS[i.type]).map(i=>{const def=RDEFS[i.type];
   const sf=def.surf==='ceil'?'ceil':(WALL_KEYS.includes(i.surf)?i.surf:'A');
   return {id:String(i.id||uid()),type:i.type,surf:sf,x:+i.x||0,y:+i.y||0,props:Object.assign({},def.defaults,i.props||{})}});
@@ -583,9 +590,11 @@ function roomEnter(boot){ensureRooms();if(!boot){roomRefresh(true)}}
 function roomLeave(){rsel=null;stop3D()}
 function roomReset(){rsel=null;texCache.clear()}
 function setSurf(k,keepSel){surf=k;if(k!=='3d'&&k!=='ceil')lastWall=k;if(!keepSel)rsel=null;document.body.classList.toggle('r3d',k==='3d');roomRefresh(true);updUI()}
-function roomRefresh(refit){if(appMode!=='room')return;ensureRooms();document.body.classList.toggle('r3d',surf==='3d');
+function roomRefresh(refit){if(appMode!=='wiring')return;ensureRooms();document.body.classList.toggle('r3d',surf==='3d');
  if(surf==='3d'){draw2DClear();show3D(refit)}else{stop3D();if(refit)roomFit(true);else draw2D()}}
-function roomCommit(){save();roomRefresh(false);updUI()}
+/* Forms in this file are reachable from the floor plan too, so the
+   commit has to redraw whichever view is on screen. */
+function roomCommit(){save();roomRefresh(false);if(appMode==='plan')drawPlan();updUI()}
 
 /* ---------- top bar: surface tabs + selection ---------- */
 function roomUpdUI(){const Rm=RM(),tabs=$('#roomTabs');
@@ -613,7 +622,7 @@ $('#roomTabs').addEventListener('click',e=>{const b=e.target.closest('button');i
  else if(a==='rooms')openRooms();
  else if(a==='cct')openCircuits();
  else if(a==='room')openRoomSettings()});
-$('#selbar').addEventListener('click',e=>{if(appMode!=='room')return;const b=e.target.closest('[data-ra]');if(!b)return;const a=b.dataset.ra,it=rfind(rsel);if(!it)return;
+$('#selbar').addEventListener('click',e=>{if(appMode!=='wiring')return;const b=e.target.closest('[data-ra]');if(!b)return;const a=b.dataset.ra,it=rfind(rsel);if(!it)return;
  if(a==='goto')setSurf(it.surf,true);else if(a==='edit')openRoomProps(it.id);else if(a==='dup')roomDup();else if(a==='del')roomDel();else if(a==='close'){rselect(null)}});
 function rselect(id){rsel=id;if(surf==='3d')req3D(true);else draw2D();updUI()}
 
@@ -745,6 +754,20 @@ function openCircuits(){
 /* ---------- rooms: switch, add, duplicate, delete ---------- */
 function switchRoom(id){if(!S.rooms.some(r=>r.id===id))return;
  S.roomId=id;rsel=null;texCache.clear();roomRefresh(true);save();updUI()}
+/** A deep copy of a room with fresh ids throughout: items, any room-level
+ *  circuits left over from a pre-2.10 project, and the switch→load links
+ *  remapped onto the copies — forgetting either map would leave the copy
+ *  driving the original's lights. Circuits that live on a *panel* keep
+ *  their ids: both rooms are fed from the same board. The caller names it
+ *  and gives it a spot on the plan. */
+function cloneRoom(src){const c=normRoom(JSON.parse(JSON.stringify(src)));
+ c.id=uid();c.name=src.name+' copy';c.plan=null;
+ const cmap=new Map();c.circuits.forEach(x=>{const n=uid();cmap.set(x.id,n);x.id=n});
+ const imap=new Map();c.items.forEach(i=>{const n=uid();imap.set(i.id,n);i.id=n});
+ c.items.forEach(i=>{
+  if(i.props.circuit&&cmap.has(i.props.circuit))i.props.circuit=cmap.get(i.props.circuit);
+  if(Array.isArray(i.props.controls))i.props.controls=i.props.controls.map(row=>row.map(id=>imap.get(id)).filter(Boolean))});
+ return c}
 function openRooms(){
  const draw=()=>{const rs=S.rooms;
   const rows=rs.map(r=>{const pts=r.items.filter(i=>!RDEFS[i.type].opening).length;
@@ -757,25 +780,15 @@ function openRooms(){
       :`<button type="button" class="bb" data-gor="${r.id}">Open</button>`}
      <button type="button" class="bb" data-dupr="${r.id}">Duplicate</button></div></div>`}).join('');
   openModal(`<h3>Rooms</h3><form id="rmf">${rows}
-   <div class="mact" style="justify-content:flex-start;margin-top:10px"><button type="button" class="bb" id="rAdd">+ Add room</button></div>
-   <p class="muted">The panel is shared by every room in the project — circuits in any room can point at its breakers.</p>
+   <div class="mact" style="justify-content:flex-start;margin-top:10px"><button type="button" class="bb" id="rAdd">+ Add room</button>${appMode==='plan'?'':'<button type="button" class="bb" id="rPlan">Open floor plan</button>'}</div>
+   <p class="muted">Rooms are placed next to each other on the <b>floor plan</b> — that is where you move, resize and turn them. The panel is shared by every room in the project: circuits in any room can point at its breakers.</p>
    <div class="mact"><button type="button" class="bb" data-close>Cancel</button><button class="bb pri">Save names</button></div></form>`,box=>{
-   box.querySelector('#rAdd').onclick=()=>{pushUndo();
-    const r=normRoom({name:'Room '+(S.rooms.length+1)});S.rooms.push(r);S.roomId=r.id;rsel=null;save();draw()};
+   /* Add and duplicate go through plan.js so the new room always has a
+      spot on the floor plan, wherever it was made from. */
+   box.querySelector('#rAdd').onclick=()=>{planAddRoom(null,true);draw()};
+   const pb=box.querySelector('#rPlan');if(pb)pb.onclick=()=>{closeModal();setAppMode('plan')};
    box.querySelectorAll('[data-gor]').forEach(b=>b.onclick=()=>{closeModal();switchRoom(b.dataset.gor);toast('Editing '+RM().name)});
-   box.querySelectorAll('[data-dupr]').forEach(b=>b.onclick=()=>{pushUndo();
-    const src=S.rooms.find(r=>r.id===b.dataset.dupr),c=normRoom(JSON.parse(JSON.stringify(src)));
-    /* Fresh ids throughout, or the copy's points and circuits would be
-       the same objects-by-id as the original's. */
-    c.id=uid();c.name=src.name+' copy';
-    const cmap=new Map();c.circuits.forEach(x=>{const n=uid();cmap.set(x.id,n);x.id=n});
-    const imap=new Map();c.items.forEach(i=>{const n=uid();imap.set(i.id,n);i.id=n});
-    c.items.forEach(i=>{
-     if(i.props.circuit)i.props.circuit=cmap.get(i.props.circuit)||'';
-     /* Remap, don't drop: a duplicated room keeps which gang drives
-        which light, pointed at the copies rather than the originals. */
-     if(Array.isArray(i.props.controls))i.props.controls=i.props.controls.map(row=>row.map(id=>imap.get(id)).filter(Boolean))});
-    S.rooms.push(c);S.roomId=c.id;rsel=null;save();draw()});
+   box.querySelectorAll('[data-dupr]').forEach(b=>b.onclick=()=>{planDupRoom(b.dataset.dupr);draw()});
    box.querySelectorAll('[data-delr]').forEach(b=>b.onclick=()=>{const r=S.rooms.find(x=>x.id===b.dataset.delr);
     if(!confirm(`Delete "${r.name}" and everything in it?`))return;
     pushUndo();S.rooms=S.rooms.filter(x=>x.id!==r.id);
@@ -849,7 +862,7 @@ function dimLine(x1,y1,x2,y2,label,u,col='#0a84ff'){const hz=Math.abs(y1-y2)<1e-
  const mx=(x1+x2)/2,my=(y1+y2)/2,fs=11*u;
  return s+(hz?halo(mx,my-4*u,label,fs,col):halo(mx+5*u,my+fs*.35,label,fs,col,'start'))}
 const halo=(x,y,s,fs,fill,anchor='middle')=>`<text x="${x}" y="${y}" font-size="${fs}" font-weight="700" fill="${fill}" text-anchor="${anchor}" stroke="#fff" stroke-width="${fs*0.28}" paint-order="stroke" stroke-linejoin="round">${esc(s)}</text>`;
-function draw2D(){if(appMode!=='room'||surf==='3d')return;const Rm=RM(),isC=surf==='ceil',len=surfLen(surf),H=surfH(surf),s=rview.k*RS,u=1/s;let o='';
+function draw2D(){if(appMode!=='wiring'||surf==='3d')return;const Rm=RM(),isC=surf==='ceil',len=surfLen(surf),H=surfH(surf),s=rview.k*RS,u=1/s;let o='';
  r2w.setAttribute('transform',`translate(${rview.x},${rview.y}) scale(${s})`);
  const ln=(x1,y1,x2,y2,c,w=1,dash='')=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="${w}" vector-effect="non-scaling-stroke"${dash?` stroke-dasharray="${dash}"`:''}/>`;
  // surface + context
@@ -932,7 +945,7 @@ function init3D(){if(T3)return T3;const host=$('#r3d'),msg=$('#r3dMsg');
  const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(38,1,20,200000);
  scene.add(new THREE.HemisphereLight(0xffffff,0xb9b2a6,0.85));const sun=new THREE.DirectionalLight(0xffffff,0.55);sun.position.set(-0.5,1,0.35);scene.add(sun);
  const root=new THREE.Group();scene.add(root);T3={renderer,scene,camera,root,walls:{},wallItems:{},labels:[],pick:[],selBox:null};
- bind3DGestures(renderer.domElement);addEventListener('resize',()=>{if(surf==='3d'&&appMode==='room')req3D()});orbitReset();return T3}
+ bind3DGestures(renderer.domElement);addEventListener('resize',()=>{if(surf==='3d'&&appMode==='wiring')req3D()});orbitReset();return T3}
 function show3D(refit){const t=init3D();if(!t)return;build3D();if(refit&&!t.didFit){orbitReset();t.didFit=true}req3D()}
 function stop3D(){$('#r3dLbl').innerHTML='';if(T3)T3.labels=[]}
 function req3D(){if(r3need)return;r3need=true;requestAnimationFrame(()=>{r3need=false;render3D()})}
@@ -1008,7 +1021,7 @@ function build3D(){const t=T3;if(!t)return;const Rm=RM(),T=Rm.t;
   t.root.add(wires);t.wires=wires}
  const s=rsel&&rfind(rsel);if(s){const o=t.wallItems[s.surf].children.find(c=>c.userData.rid===s.id);if(o){t.selBox=new THREE.BoxHelper(o,0x0a84ff);t.root.add(t.selBox)}}}
 function wallFacesCamera(W,cam){const n=V(W.n),o=V(W.o);return n.dot(cam.clone().sub(o))>0}
-function render3D(){const t=T3;if(!t||surf!=='3d'||appMode!=='room')return;const host=$('#r3d'),w=host.clientWidth,h=host.clientHeight;if(!w||!h)return;
+function render3D(){const t=T3;if(!t||surf!=='3d'||appMode!=='wiring')return;const host=$('#r3d'),w=host.clientWidth,h=host.clientHeight;if(!w||!h)return;
  t.renderer.setSize(w,h,false);t.renderer.domElement.style.width=w+'px';t.renderer.domElement.style.height=h+'px';t.camera.aspect=w/h;
  const a=r2Area();t.camera.setViewOffset(w,h,Math.round(w/2-(a.x+a.w/2)),Math.round(h/2-(a.y+a.h/2)),w,h);
  orb.phi=clamp(orb.phi,0.08,Math.PI/2+0.35);const sp=Math.sin(orb.phi);
@@ -1056,7 +1069,7 @@ function surfBlock(k){const keep={surf,allDims,rsel,rview:{...rview}};
   surf=keep.surf;allDims=keep.allDims;rsel=keep.rsel;rview=keep.rview;draw2D()}
  return inner}
 function roomSheet(asSvg){
- if(appMode!=='room')return toast('Switch to the room designer first');
+ if(appMode!=='wiring')return toast('Switch to the wiring step first');
  const Rm=RM(),PAD=300,TOP=190,BOT=430,GAP=420,COLS=2;
  const cells=[...WALL_KEYS.map(k=>({k,len:wallLen(k),H:Rm.h})),{k:'ceil',len:Rm.w,H:Rm.l}];
  cells.forEach(c=>{c.bw=c.len+2*PAD;c.bh=c.H+TOP+BOT;c.svg=surfBlock(c.k)});

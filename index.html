@@ -17,9 +17,11 @@
 <svg id="r2d" xmlns="http://www.w3.org/2000/svg"><g id="r2w" font-family="Arial,Helvetica,sans-serif"></g></svg>
 <!-- Room designer: 3D view -->
 <div id="r3d"><div id="r3dLbl"></div><div id="r3dMsg" class="hidden"></div></div>
+<!-- Floor plan: all rooms from above -->
+<svg id="pl2d" xmlns="http://www.w3.org/2000/svg"><g id="plw" font-family="Arial,Helvetica,sans-serif"></g></svg>
 
 <div id="bars">
- <div class="toprow"><div class="seg" id="modeSw"><button data-mode="panel">Panel</button><button data-mode="room">Room</button></div><button id="titleChip">Panel</button></div>
+ <div class="toprow"><div class="seg" id="modeSw"><button data-mode="plan">Plan</button><button data-mode="wiring">Wiring</button><button data-mode="panel">Panel</button></div><button id="titleChip">Panel</button></div>
  <div id="roomTabs" class="rt"></div>
  <div id="wirebar" class="bar hidden"></div>
  <div id="selbar" class="bar hidden"></div>
@@ -51,6 +53,7 @@
 <script src="vendor/three.min.js"></script>
 <script src="js/panel.js"></script>
 <script src="js/room.js"></script>
+<script src="js/plan.js"></script>
 <script src="js/update.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/cloud.js"></script>

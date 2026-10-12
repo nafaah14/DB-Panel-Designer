@@ -21,7 +21,7 @@ const prefsHTML=()=>`<section class="sec"><h4>Preferences</h4>
 function bindPrefs(box){
  const apply=()=>{settings.scheme=box.querySelector('#pScheme').value;settings.snap=box.querySelector('#pSnap').checked;
   settings.labels=box.querySelector('#pLabels').checked;saveSettings();
-  if(appMode==='room')roomRefresh();else render();renderTabs();updUI()};
+  if(appMode==='wiring')roomRefresh();else if(appMode==='plan')drawPlan();else render();renderTabs();updUI()};
  box.querySelectorAll('#pScheme,#pSnap,#pLabels').forEach(el=>el.onchange=apply)}
 
 /* ---------- storage, backup ---------- */
