@@ -1,14 +1,21 @@
-# DB Panel Designer — v2.11.0
+# DB Panel Designer — v2.12.0
 
 Phone-first designer for **DB panels** (DIN rails, breakers, busbars, wiring) and **room electrical layouts** (switches, sockets, lights, fans) with a 3D view. Vanilla JS, works offline, data saved on the device.
 
 ## Deploy
-Drop the zip (index.html is at its root) onto Netlify. For a quick phone test without hosting, open `dist/panel-designer-standalone.html` (everything in one file).
+Hosted on **Cloudflare Workers (Static Assets)** from the GitHub repo `nafaah14/DB-Panel-Designer`: every push to `main` is built and published automatically (config in `wrangler.jsonc`; `.assetsignore` keeps `node_modules`, `tools` and other non-site files out of the upload). For a quick phone test without hosting, open `dist/panel-designer-standalone.html` (everything in one file).
 
 ## Develop (VS Code + Claude Code)
-`npm run serve` → http://localhost:5173 · `npm run build` → standalone file. See **CLAUDE.md** for architecture and conventions.
+`npm run serve` → http://localhost:5173 · `npm run build` → standalone file · `node tools/bump.mjs 2.13.0 "what changed"` → sets the version everywhere, writes `version.json` (what the in-app update check reads) and rebuilds `dist/`. See **CLAUDE.md** for architecture and conventions.
 
 ## Features
+### Settings, version and updates (new in 2.12)
+- **Menu → Settings** shows the app version, checks whether a newer one is out (**Check for updates**), and lists what changed. The app also checks on its own — shortly after opening, when you come back to it, and every couple of hours — and can be told not to.
+- When an update exists, the menu button gets an **orange dot** and a small banner offers **Reload**. Your designs are saved on the device first; reloading never loses them.
+- **Back up everything** writes every project to one file; **Import a file** adds them back (always as new projects — nothing is overwritten).
+- **Protect from clearing** asks the browser not to evict saved designs when the device runs low on space.
+- Preference changes apply immediately — there is no Save button.
+
 ### Room wiring (new in 2.1)
 - **A room's DB is a panel** (2.10) — link a DB to one of the project's boards (DB → Edit → Panel) and it becomes that board: you design it in the panel editor, and its circuits are the ones the room can use. Put two DBs in a room on two different boards and each point runs back to the one that actually feeds it.
 - **⚡ Circuits** — name, MCB rating and cable size. Circuits belong to the **board they come from**, so the same list appears in the panel editor and in every room fed by that board — created in one place, available in the other, with nothing to keep in sync.
@@ -42,6 +49,7 @@ Drop the zip (index.html is at its root) onto Netlify. For a quick phone test wi
 - Bill of materials with wire lengths (+15%) and rail usage, CSV export
 
 ## Changelog
+- 2.12.0 — **Settings, version and update check.** Menu → Settings now shows the app version and has **Check for updates**; the app also checks by itself (after opening, on coming back to the tab, every two hours) by reading a small `version.json` published with the site, and shows an orange dot on the menu button plus a Reload banner when something newer is out. There is deliberately no service worker, so nothing is cached behind your back — a reload fetches the new files. Settings also gained **Back up everything** / **Import a file** (a whole-device backup, restored as new projects so nothing is overwritten), a **Protect from clearing** button (asks the browser to keep saved designs), and a storage meter. Preferences apply as you change them. `tools/bump.mjs` sets the version everywhere, writes `version.json` and rebuilds `dist/` in one go
 - 2.11.0 — **Industrial equipment, so a workshop can be wired.** 16 new point types: IEC 60309 industrial sockets (1P and 3P, 16–125 A, interlocked, IP44/IP67), weatherproof 13 A, enclosed isolators 1P–4P 20–125 A, emergency stops, push-button stations, contactors, DOL and star-delta starters, VFDs, motor and machine points, high bays, battens, flood lights, bulkheads, emergency lights and exit signs. **Control gear chains**: an isolator feeds a starter and the starter feeds the motor, each leg routed and measured, and a point left on no circuit inherits from whatever feeds it all the way up the chain. Load-side cable is drawn orange so it reads apart from the board's red feed and a switch's yellow switched live. Circuits gained a **phase** (1φ / 3φ) — cable is called out by core count in the bill of materials, and a 3-phase point sitting on a single-phase way is flagged. Cable sizes run to 95 mm², boards to 48 way. The panel library is unchanged and still domestic
 - 2.10.1 — **Fix: importing a project exported by 2.9 or later failed.** The import check still required a top-level `items` array, which exports stopped having when panels became a list — so the app rejected its own backups, breaking the only way to move a project between devices. Both shapes are accepted now
 - 2.10.0 — **A room's DB is a real panel.** Link a DB to one of the project's boards and it *is* that board — designed in the panel editor, and its circuits become the ones the room can use. Circuits moved from the room onto the panel that owns them, so there is one list shared by the panel editor and every room that board feeds, rather than two copies kept in step. With two DBs on two boards, each point routes back to the one that feeds it. Projects upgrade on load: circuits move onto the board, ids intact, and each room's DB is linked to it automatically

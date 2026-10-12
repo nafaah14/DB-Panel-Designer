@@ -86,6 +86,7 @@ body.sheet-open #toast{bottom:calc(var(--sheetH) + 16px)}
 .lsel{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:#6b6b70}
 .lsel select{max-width:150px}
 .fab.dot::after{content:"";position:absolute;top:7px;right:7px;width:9px;height:9px;border-radius:50%;background:#ff9500;border:2px solid #1c1c1e}
+.fab.light.dot::after{border-color:#fff}
 .fab{position:relative}
 .hidden{display:none!important}
 @media (min-width:900px){
@@ -146,3 +147,26 @@ body.room:not(.r3d) #r3d{display:none}
 .cct-warn{margin:2px 0 0;font-size:12px;font-weight:600;color:#b25000;background:#fff4e5;border-radius:8px;padding:6px 8px}
 .cct-cur{font-size:12.5px;font-weight:700;color:#0a84ff;padding:7px 0}
 .cct-own{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#6b6b70;background:#f0f0f3;border-radius:6px;padding:2px 7px;align-self:flex-start}
+
+/* ---- update banner + settings sections ---- */
+#updbar{position:fixed;left:12px;right:68px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:21;display:flex;align-items:center;gap:6px;background:#1c1c1e;color:#fff;border-radius:14px;padding:6px 6px 6px 14px;box-shadow:0 6px 22px rgba(0,0,0,.28);font-size:14px}
+#updbar b{flex:1 1 auto;font-weight:700;margin-right:4px;min-width:0}
+#updbar .bb{flex:none;min-height:34px}
+body.sheet-open #updbar{bottom:calc(var(--sheetH) + 68px)}
+@media (min-width:900px){#updbar{left:50%;right:auto;width:max-content;max-width:calc(100vw - 24px);transform:translateX(-50%)}body.sheet-open #updbar{bottom:76px}}
+.mlist button small.uh{color:#b25000;font-weight:700}
+.sec{border-top:1px solid #e5e5ea;margin-top:14px;padding-top:12px}
+.sec.first{border-top:0;margin-top:0;padding-top:0}
+.sec>h4{margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#8a8a8f}
+.sec p{margin:6px 0}
+.sec .sline{font-size:14px}
+.scard{border:1px solid #e5e5ea;border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.scard.warn{border-color:#ffd9a8;background:#fff7ec}
+.scard p{margin:4px 0}
+.srow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ver{font-weight:700;color:#6b6b70;font-variant-numeric:tabular-nums}
+.sstat{font-size:13.5px;font-weight:600}
+.sstat.ok{color:#1d7f35}.sstat.up{color:#b25000}.sstat.bad{color:#b3261e}
+.mbox details{margin-top:10px;font-size:13.5px}
+.mbox summary{font-weight:600;padding:6px 0;cursor:pointer}
+.mbox details ul{margin:4px 0 0;padding-left:20px;line-height:1.45}

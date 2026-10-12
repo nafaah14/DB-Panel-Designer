@@ -96,6 +96,7 @@ body.sheet-open #toast{bottom:calc(var(--sheetH) + 16px)}
 .lsel{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:#6b6b70}
 .lsel select{max-width:150px}
 .fab.dot::after{content:"";position:absolute;top:7px;right:7px;width:9px;height:9px;border-radius:50%;background:#ff9500;border:2px solid #1c1c1e}
+.fab.light.dot::after{border-color:#fff}
 .fab{position:relative}
 .hidden{display:none!important}
 @media (min-width:900px){
@@ -157,6 +158,29 @@ body.room:not(.r3d) #r3d{display:none}
 .cct-cur{font-size:12.5px;font-weight:700;color:#0a84ff;padding:7px 0}
 .cct-own{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#6b6b70;background:#f0f0f3;border-radius:6px;padding:2px 7px;align-self:flex-start}
 
+/* ---- update banner + settings sections ---- */
+#updbar{position:fixed;left:12px;right:68px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:21;display:flex;align-items:center;gap:6px;background:#1c1c1e;color:#fff;border-radius:14px;padding:6px 6px 6px 14px;box-shadow:0 6px 22px rgba(0,0,0,.28);font-size:14px}
+#updbar b{flex:1 1 auto;font-weight:700;margin-right:4px;min-width:0}
+#updbar .bb{flex:none;min-height:34px}
+body.sheet-open #updbar{bottom:calc(var(--sheetH) + 68px)}
+@media (min-width:900px){#updbar{left:50%;right:auto;width:max-content;max-width:calc(100vw - 24px);transform:translateX(-50%)}body.sheet-open #updbar{bottom:76px}}
+.mlist button small.uh{color:#b25000;font-weight:700}
+.sec{border-top:1px solid #e5e5ea;margin-top:14px;padding-top:12px}
+.sec.first{border-top:0;margin-top:0;padding-top:0}
+.sec>h4{margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#8a8a8f}
+.sec p{margin:6px 0}
+.sec .sline{font-size:14px}
+.scard{border:1px solid #e5e5ea;border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.scard.warn{border-color:#ffd9a8;background:#fff7ec}
+.scard p{margin:4px 0}
+.srow{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ver{font-weight:700;color:#6b6b70;font-variant-numeric:tabular-nums}
+.sstat{font-size:13.5px;font-weight:600}
+.sstat.ok{color:#1d7f35}.sstat.up{color:#b25000}.sstat.bad{color:#b3261e}
+.mbox details{margin-top:10px;font-size:13.5px}
+.mbox summary{font-weight:600;padding:6px 0;cursor:pointer}
+.mbox details ul{margin:4px 0 0;padding-left:20px;line-height:1.45}
+
 </style>
 </head>
 <body class="sheet-open">
@@ -192,6 +216,7 @@ body.room:not(.r3d) #r3d{display:none}
 </div>
 
 <div id="layers" class="hidden"></div>
+<div id="updbar" class="hidden" role="status"><b></b><button class="bb pri" data-act="reload">Reload</button><button class="bb" data-act="later" aria-label="Dismiss">✕</button></div>
 <div id="modal" class="hidden"><div class="mbox"></div></div>
 <div id="toast"></div>
 <input type="file" id="fileIn" accept=".json,application/json" class="hidden">
@@ -212,7 +237,7 @@ body.room:not(.r3d) #r3d{display:none}
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.11.0';
+const APP_VERSION='2.12.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -939,7 +964,7 @@ function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="layers">Layers <small>${S.layers.length}</small></button>
  <button data-m="rerouteall">Auto-route all wires <small>resets manual paths</small></button>
  <button data-m="clearw">Remove all wires</button>
- <button data-m="settings">Settings</button>
+ <button data-m="settings">Settings${updAvailable()?'<small class="uh">update available</small>':''}</button>
  <button data-m="help">How to use</button>
  <button data-m="about">About <small>v${APP_VERSION}</small></button></div><div class="mact"><button class="bb" data-close>Close</button></div>`,box=>{
  box.querySelector('.mlist').onclick=e=>{const b=e.target.closest('[data-m]');if(!b)return;const m=b.dataset.m;closeModal();
@@ -947,12 +972,7 @@ function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
    clearw:()=>{if(!S.wires.length)return toast('No wires');if(confirm('Remove all wires?')){pushUndo();S.wires=[];sel=[];commit()}},layers:()=>toggleLayers(true),
    rerouteall:()=>{if(!S.wires.some(w=>w.path))return toast('All wires are already auto-routed');pushUndo();S.wires.forEach(w=>delete w.path);commit();toast('Wires re-routed')},settings:openSettings,help:openHelp,
    about:()=>openModal(`<h3>DB Panel Designer</h3><p class="muted">Version ${APP_VERSION}<br>Panel + room designer · works offline · data stored on this device.<br>3D by three.js (MIT).</p><div class="mact"><button class="bb pri" data-close>OK</button></div>`)})[m]()}})}
-function openSettings(){openModal(`<h3>Settings</h3><form id="sf">
- <label>Wire colour scheme (Auto)<select name="scheme">${Object.entries(SCHEMES).map(([k,v])=>`<option value="${k}" ${k===settings.scheme?'selected':''}>${v.name}</option>`).join('')}</select></label>
- <label class="row"><input type="checkbox" name="snap" ${settings.snap?'checked':''}>Snap free items to grid</label>
- <label class="row"><input type="checkbox" name="labels" ${settings.labels?'checked':''}>Show circuit labels</label>
- <div class="mact"><button type="button" class="bb" data-close>Cancel</button><button class="bb pri">Save</button></div></form>`,box=>{
- box.querySelector('#sf').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);settings.scheme=fd.get('scheme');settings.snap=!!fd.get('snap');settings.labels=!!fd.get('labels');saveSettings();closeModal();render();renderTabs();updUI()}})}
+/* openSettings() — preferences, storage, version and updates — is in settings.js */
 function openHelp(){openModal(`<h3>How to use</h3><div class="help">
  <p><b>Add parts:</b> tap + to open the library, then tap a part. Devices drop into the first free space on a DIN rail.</p>
  <p><b>Move:</b> drag a device along or between rails — it snaps to module positions. Drag it off a rail to place it freely. Rails and enclosures must be selected first before dragging.</p>
@@ -964,7 +984,7 @@ function openHelp(){openModal(`<h3>How to use</h3><div class="help">
  <p><b>Navigate:</b> drag empty space to pan, pinch or mouse-wheel to zoom, ⤢ to fit.</p>
  <p><b>Room designer:</b> switch to <i>Room</i> at the top. Pick a wall (A–D) or the ceiling to place points on a flat view with heights and distances, then open <i>3D</i> to see the whole room — drag to rotate, pinch to zoom, two fingers to pan. Tap a wall in 3D to edit it.</p>
  <p><b>Keys:</b> W wire mode · L layers · Del delete · Ctrl+Z / Ctrl+Y · Ctrl+D copy · Esc deselect.</p>
- <p class="muted">Everything autosaves on this device. Use Export project to back up or move to another device.</p></div><div class="mact"><button class="bb pri" data-close>Got it</button></div>`)}
+ <p class="muted">Everything autosaves on this device. Use Export project to move one project to another device, or Settings → Back up everything to keep a copy of them all.</p></div><div class="mact"><button class="bb pri" data-close>Got it</button></div>`)}
 
 /* ---------- projects ---------- */
 function blankDoc(){const r={id:uid(),type:'rail',props:{mod:12,label:''},x:0,y:0,rail:null,slot:0,layer:'base'};return {name:'Untitled panel',items:[r],wires:[],layers:defaultLayers(),defs:{items:'base',wires:'wires'}}}
@@ -1015,6 +1035,7 @@ function exportJSON(){const o={app:'db-panel-designer',appVersion:APP_VERSION,sc
    is. */
 $('#fileIn').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
  try{const o=JSON.parse(await f.text());
+  if(o&&o.kind==='backup'&&Array.isArray(o.projects))return importBackup(o);
   const ok=Array.isArray(o.panels)?o.panels.length>0:(Array.isArray(o.items)&&Array.isArray(o.wires));
   if(!ok)throw 0;
   newProject({...o,name:(o.name||'Imported panel')+''});toast('Project imported')}
@@ -2262,6 +2283,173 @@ function roomExport(asSvg){const nm=`${fname()}-${(RM().name||'room').replace(/[
  if(asSvg)return shareOrDownload(new Blob([svg],{type:'image/svg+xml'}),`${nm}-${surf}.svg`);
  const img=new Image();img.onload=()=>{const c=document.createElement('canvas'),sc=Math.min(2,4000/w*2);c.width=w/2*sc;c.height=h/2*sc;const g=c.getContext('2d');g.drawImage(img,0,0,c.width,c.height);c.toBlob(b=>b&&shareOrDownload(b,`${nm}-${surf}.png`),'image/png')};
  img.onerror=()=>toast('Export failed');img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg)}
+
+</script>
+<script>
+'use strict';
+/* =========================================================
+   Update check
+   Asks the server for version.json and compares it with the running
+   APP_VERSION. There is deliberately no service worker: the site is served
+   with must-revalidate, so a plain reload fetches the new files, and a
+   worker registered on localhost would outlive this project and answer for
+   every other app that dev server ever hosts.
+   ========================================================= */
+const LS_UPD='pdes.upd';
+const UPD_AFTER=45*60e3;          // re-check when the tab comes back after this long
+const UPD_POLL=2*60*60e3;         // ...and this often while it stays open
+
+/* What the last successful check saw — kept, so the orange dot is there the
+   moment the app opens, not 3 seconds later. `last` is this session only. */
+const upd=(()=>{
+ let o={};try{o=JSON.parse(lsGet(LS_UPD)||'null')||{}}catch(e){}
+ return {latest:String(o.latest||''),date:String(o.date||''),notes:Array.isArray(o.notes)?o.notes.map(String):[],
+  checked:+o.checked||0,dismissed:String(o.dismissed||''),busy:false,last:''}})();
+
+function verCmp(a,b){const p=s=>String(s).split('.').map(n=>parseInt(n,10)||0),x=p(a),y=p(b);
+ for(let i=0;i<3;i++){const d=(x[i]||0)-(y[i]||0);if(d)return d>0?1:-1}return 0}
+const updAvailable=()=>!!upd.latest&&verCmp(upd.latest,APP_VERSION)>0;
+const updSave=()=>lsSet(LS_UPD,JSON.stringify({latest:upd.latest,date:upd.date,notes:upd.notes,checked:upd.checked,dismissed:upd.dismissed}));
+
+/** Resolves to 'ok' | 'offline' | 'unsupported' | 'error' — never throws. */
+async function updCheck(){
+ if(upd.busy)return upd.last;
+ if(!/^https?:$/.test(location.protocol)){upd.last='unsupported';updRender();return upd.last}
+ if(navigator.onLine===false){upd.last='offline';updRender();return upd.last}
+ upd.busy=true;upd.last='checking';updRender();
+ const ac=new AbortController(),timer=setTimeout(()=>ac.abort(),10000);
+ try{
+  const r=await fetch('version.json',{cache:'no-store',signal:ac.signal});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  if(!j||!/^\d+\.\d+\.\d+$/.test(j.version||''))throw new Error('unreadable version.json');
+  upd.latest=j.version;upd.date=String(j.date||'').slice(0,10);
+  upd.notes=(Array.isArray(j.notes)?j.notes:[]).slice(0,12).map(s=>String(s).slice(0,200));
+  upd.checked=Date.now();upd.last='ok';updSave();
+ }catch(e){upd.last=navigator.onLine===false?'offline':'error'}
+ finally{clearTimeout(timer);upd.busy=false}
+ updRender();return upd.last}
+
+/* The menu dot and the banner follow the same facts; Settings, if it is
+   open, redraws itself through settingsUpdated(). */
+function updRender(){
+ const has=updAvailable(),bar=$('#updbar');
+ $('#bMenu').classList.toggle('dot',has);
+ const show=has&&upd.dismissed!==upd.latest;
+ bar.classList.toggle('hidden',!show);
+ if(show)bar.querySelector('b').textContent='Update available — v'+upd.latest;
+ if(typeof settingsUpdated==='function')settingsUpdated()}
+
+function updReload(){location.reload()}
+
+$('#updbar').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+ if(b.dataset.act==='reload')updReload();
+ else{upd.dismissed=upd.latest;updSave();updRender()}});
+
+(function updSchedule(){
+ const auto=()=>settings.autoUpdate!==false&&/^https?:$/.test(location.protocol);
+ setTimeout(()=>{if(auto())updCheck()},2500);
+ document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&auto()&&Date.now()-upd.checked>UPD_AFTER)updCheck()});
+ window.addEventListener('online',()=>{if(auto()&&Date.now()-upd.checked>UPD_AFTER)updCheck()});
+ setInterval(()=>{if(document.visibilityState==='visible'&&auto())updCheck()},UPD_POLL);
+ if(!/^https?:$/.test(location.protocol))upd.last='unsupported';
+ updRender()})();
+
+</script>
+<script>
+'use strict';
+/* =========================================================
+   Settings — preferences, what is stored on this device, and the app
+   version with its update check. Changes apply as they are made, so there
+   is no Save button to forget.
+   ========================================================= */
+const fmtAgo=ts=>{if(!ts)return 'never';const s=Math.max(0,(Date.now()-ts)/1000);
+ if(s<60)return 'just now';if(s<3600)return Math.round(s/60)+' min ago';
+ if(s<86400)return Math.round(s/3600)+' h ago';return Math.round(s/86400)+' days ago'};
+const fmtSize=n=>n<1e3?n+' B':n<1e6?Math.round(n/1e3)+' KB':(n/1e6).toFixed(1)+' MB';
+/* Characters, not bytes: browsers meter localStorage by characters (~5M). */
+function storageUse(){let n=0;
+ try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith('pdes.'))n+=k.length+(localStorage.getItem(k)||'').length}}catch(e){}
+ return n}
+
+/* ---------- preferences ---------- */
+const prefsHTML=()=>`<section class="sec first"><h4>Preferences</h4>
+ <label>Wire colour scheme (Auto)<select id="pScheme">${Object.entries(SCHEMES).map(([k,v])=>`<option value="${k}" ${k===settings.scheme?'selected':''}>${v.name}</option>`).join('')}</select></label>
+ <label class="row"><input type="checkbox" id="pSnap" ${settings.snap?'checked':''}>Snap free items to grid</label>
+ <label class="row"><input type="checkbox" id="pLabels" ${settings.labels?'checked':''}>Show circuit labels</label></section>`;
+function bindPrefs(box){
+ const apply=()=>{settings.scheme=box.querySelector('#pScheme').value;settings.snap=box.querySelector('#pSnap').checked;
+  settings.labels=box.querySelector('#pLabels').checked;saveSettings();
+  if(appMode==='room')roomRefresh();else render();renderTabs();updUI()};
+ box.querySelectorAll('#pScheme,#pSnap,#pLabels').forEach(el=>el.onchange=apply)}
+
+/* ---------- storage, backup ---------- */
+function backupAll(){save();
+ const list=Object.entries(loadProjects()).map(([id,r])=>({id,name:r.name,updated:r.updated,appVersion:r.appVersion,data:r.data}));
+ if(!list.length)return toast('Nothing to back up yet');
+ const o={app:'db-panel-designer',kind:'backup',schema:1,appVersion:APP_VERSION,exported:new Date().toISOString(),projects:list};
+ shareOrDownload(new Blob([JSON.stringify(o)],{type:'application/json'}),`panel-designer-backup-${new Date().toISOString().slice(0,10)}.json`)}
+/** Same test the single-project import applies: new `panels` shape or the old flat one. */
+const validDoc=d=>!!d&&typeof d==='object'&&(Array.isArray(d.panels)?d.panels.length>0:Array.isArray(d.items)&&Array.isArray(d.wires));
+/** Adds every project in a backup as a new project; nothing existing is replaced. */
+function importBackup(o){
+ const P=loadProjects();let n=0;
+ for(const r of o.projects){
+  if(!r||typeof r.name!=='string'||!validDoc(r.data))continue;
+  P[uid()]={name:r.name.slice(0,80),updated:+r.updated||Date.now(),appVersion:String(r.appVersion||APP_VERSION),data:r.data};n++}
+ if(!n)return toast('That backup has no projects in it');
+ if(!lsSet(LS_P,JSON.stringify(P)))return toast('Not enough room on this device for that backup');
+ toast(`Added ${n} project${n===1?'':'s'} from the backup`);openProjects()}
+
+async function persistCheck(box){
+ const msg=box.querySelector('#sPers'),btn=box.querySelector('#sProt');
+ if(!(navigator.storage&&navigator.storage.persisted))return;
+ let on=false;try{on=await navigator.storage.persisted()}catch(e){}
+ if(!msg.isConnected)return;
+ msg.textContent=on?'Protected — the browser will not clear these on its own.':'Not protected — the browser may clear saved designs if this device runs low on space.';
+ btn.hidden=on||!navigator.storage.persist;
+ btn.onclick=async()=>{let ok=false;try{ok=await navigator.storage.persist()}catch(e){}
+  toast(ok?'Saved designs are now protected':'The browser declined — keep a backup file');
+  if(msg.isConnected)persistCheck(box)}}
+function renderStore(box){
+ const n=Object.keys(loadProjects()).length,use=storageUse();
+ box.querySelector('#sStore').innerHTML=`<h4>Storage</h4>
+  <p class="sline"><b>${n} project${n===1?'':'s'}</b> saved on this device · ${fmtSize(use)} of about 5&nbsp;MB</p>
+  ${use>3.5e6?'<p class="cct-warn">Storage for this app is getting full. Back up, then delete projects you no longer need.</p>':''}
+  <p class="muted" id="sPers"></p>
+  <div class="pbtns"><button type="button" class="bb" id="sProt" hidden>Protect from clearing</button><button type="button" class="bb" id="sBack">Back up everything</button><button type="button" class="bb" id="sImp">Import a file</button></div>`;
+ box.querySelector('#sBack').onclick=backupAll;
+ box.querySelector('#sImp').onclick=()=>{closeModal();$('#fileIn').click()};
+ persistCheck(box)}
+
+/* ---------- this app: version + updates ---------- */
+function renderApp(box){
+ const has=updAvailable(),st=upd.busy?'checking':upd.last;
+ let line='Not checked yet.',cls='';
+ if(st==='checking')line='Checking for updates…';
+ else if(st==='offline'){line='You are offline, so it could not check.';cls='bad'}
+ else if(st==='unsupported')line='Open the app from its web address to check for updates.';
+ else if(st==='error'){line='Could not reach the update server. Try again later.';cls='bad'}
+ else if(has){line=`Update available — v${upd.latest}${upd.date?' · '+upd.date:''}`;cls='up'}
+ else if(upd.checked&&upd.latest){line='You have the latest version.';cls='ok'}
+ const notes=upd.notes.length&&verCmp(upd.latest,APP_VERSION)>=0;
+ box.querySelector('#sAlert').innerHTML=has?`<div class="scard warn"><div class="srow"><b>Update available</b><span class="ver">v${esc(upd.latest)}</span></div><p class="muted">Your designs are saved — reloading keeps them.</p><div class="pbtns"><button type="button" class="bb pri" id="uGo">Reload to update</button></div></div>`:'';
+ box.querySelector('#sApp').innerHTML=`<h4>This app</h4>
+  <div class="srow"><b>DB Panel Designer</b><span class="ver">v${esc(APP_VERSION)}</span></div>
+  <p class="sstat ${cls}">${esc(line)}</p>
+  ${upd.checked?`<p class="muted">Last checked ${fmtAgo(upd.checked)}</p>`:''}
+  <div class="pbtns"><button type="button" class="bb" id="uChk" ${upd.busy?'disabled':''}>Check for updates</button></div>
+  <label class="row" style="margin-top:10px"><input type="checkbox" id="uAuto" ${settings.autoUpdate!==false?'checked':''}>Check for updates automatically</label>
+  ${notes?`<details><summary>${has?'What’s new in v'+esc(upd.latest):'What’s new in this version'}</summary><ul>${upd.notes.map(s=>`<li>${esc(s)}</li>`).join('')}</ul></details>`:''}`;
+ const go=box.querySelector('#uGo');if(go)go.onclick=updReload;
+ box.querySelector('#uChk').onclick=()=>updCheck();
+ box.querySelector('#uAuto').onchange=e=>{settings.autoUpdate=e.target.checked;saveSettings()}}
+/** Called by the update checker whenever its state changes. */
+function settingsUpdated(){const a=mbox.querySelector('#sApp');if(a&&a.isConnected&&!modal.classList.contains('hidden'))renderApp(mbox)}
+
+function openSettings(){
+ openModal(`<h3>Settings</h3><div id="sAlert"></div>${prefsHTML()}<section class="sec" id="sStore"></section><section class="sec" id="sApp"></section><div class="mact"><button class="bb pri" data-close>Done</button></div>`,box=>{
+  bindPrefs(box);renderStore(box);renderApp(box)})}
 
 </script>
 </body>

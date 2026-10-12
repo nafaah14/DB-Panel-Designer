@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.11.0';
+const APP_VERSION='2.12.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -731,7 +731,7 @@ function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
  <button data-m="layers">Layers <small>${S.layers.length}</small></button>
  <button data-m="rerouteall">Auto-route all wires <small>resets manual paths</small></button>
  <button data-m="clearw">Remove all wires</button>
- <button data-m="settings">Settings</button>
+ <button data-m="settings">Settings${updAvailable()?'<small class="uh">update available</small>':''}</button>
  <button data-m="help">How to use</button>
  <button data-m="about">About <small>v${APP_VERSION}</small></button></div><div class="mact"><button class="bb" data-close>Close</button></div>`,box=>{
  box.querySelector('.mlist').onclick=e=>{const b=e.target.closest('[data-m]');if(!b)return;const m=b.dataset.m;closeModal();
@@ -739,12 +739,7 @@ function openMenu(){openModal(`<h3>Menu</h3><div class="mlist">
    clearw:()=>{if(!S.wires.length)return toast('No wires');if(confirm('Remove all wires?')){pushUndo();S.wires=[];sel=[];commit()}},layers:()=>toggleLayers(true),
    rerouteall:()=>{if(!S.wires.some(w=>w.path))return toast('All wires are already auto-routed');pushUndo();S.wires.forEach(w=>delete w.path);commit();toast('Wires re-routed')},settings:openSettings,help:openHelp,
    about:()=>openModal(`<h3>DB Panel Designer</h3><p class="muted">Version ${APP_VERSION}<br>Panel + room designer · works offline · data stored on this device.<br>3D by three.js (MIT).</p><div class="mact"><button class="bb pri" data-close>OK</button></div>`)})[m]()}})}
-function openSettings(){openModal(`<h3>Settings</h3><form id="sf">
- <label>Wire colour scheme (Auto)<select name="scheme">${Object.entries(SCHEMES).map(([k,v])=>`<option value="${k}" ${k===settings.scheme?'selected':''}>${v.name}</option>`).join('')}</select></label>
- <label class="row"><input type="checkbox" name="snap" ${settings.snap?'checked':''}>Snap free items to grid</label>
- <label class="row"><input type="checkbox" name="labels" ${settings.labels?'checked':''}>Show circuit labels</label>
- <div class="mact"><button type="button" class="bb" data-close>Cancel</button><button class="bb pri">Save</button></div></form>`,box=>{
- box.querySelector('#sf').onsubmit=e=>{e.preventDefault();const fd=new FormData(e.target);settings.scheme=fd.get('scheme');settings.snap=!!fd.get('snap');settings.labels=!!fd.get('labels');saveSettings();closeModal();render();renderTabs();updUI()}})}
+/* openSettings() — preferences, storage, version and updates — is in settings.js */
 function openHelp(){openModal(`<h3>How to use</h3><div class="help">
  <p><b>Add parts:</b> tap + to open the library, then tap a part. Devices drop into the first free space on a DIN rail.</p>
  <p><b>Move:</b> drag a device along or between rails — it snaps to module positions. Drag it off a rail to place it freely. Rails and enclosures must be selected first before dragging.</p>
@@ -756,7 +751,7 @@ function openHelp(){openModal(`<h3>How to use</h3><div class="help">
  <p><b>Navigate:</b> drag empty space to pan, pinch or mouse-wheel to zoom, ⤢ to fit.</p>
  <p><b>Room designer:</b> switch to <i>Room</i> at the top. Pick a wall (A–D) or the ceiling to place points on a flat view with heights and distances, then open <i>3D</i> to see the whole room — drag to rotate, pinch to zoom, two fingers to pan. Tap a wall in 3D to edit it.</p>
  <p><b>Keys:</b> W wire mode · L layers · Del delete · Ctrl+Z / Ctrl+Y · Ctrl+D copy · Esc deselect.</p>
- <p class="muted">Everything autosaves on this device. Use Export project to back up or move to another device.</p></div><div class="mact"><button class="bb pri" data-close>Got it</button></div>`)}
+ <p class="muted">Everything autosaves on this device. Use Export project to move one project to another device, or Settings → Back up everything to keep a copy of them all.</p></div><div class="mact"><button class="bb pri" data-close>Got it</button></div>`)}
 
 /* ---------- projects ---------- */
 function blankDoc(){const r={id:uid(),type:'rail',props:{mod:12,label:''},x:0,y:0,rail:null,slot:0,layer:'base'};return {name:'Untitled panel',items:[r],wires:[],layers:defaultLayers(),defs:{items:'base',wires:'wires'}}}
@@ -807,6 +802,7 @@ function exportJSON(){const o={app:'db-panel-designer',appVersion:APP_VERSION,sc
    is. */
 $('#fileIn').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
  try{const o=JSON.parse(await f.text());
+  if(o&&o.kind==='backup'&&Array.isArray(o.projects))return importBackup(o);
   const ok=Array.isArray(o.panels)?o.panels.length>0:(Array.isArray(o.items)&&Array.isArray(o.wires));
   if(!ok)throw 0;
   newProject({...o,name:(o.name||'Imported panel')+''});toast('Project imported')}

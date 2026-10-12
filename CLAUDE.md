@@ -6,8 +6,8 @@ Internal tool for designing **distribution boards (DB panels)** and **room elect
 - No build step needed for development. Open `index.html` via a local server: `npm run serve` → http://localhost:5173
   (Opening `index.html` directly with `file://` also works on desktop.)
 - `npm run build` → `dist/panel-designer-standalone.html` = everything inlined in one file (for testing on a phone from the file manager).
-- Deploy: zip the **contents** of this folder (index.html at the zip root, no extra parent folder) and drop it on Netlify. A nested folder caused a 404 before.
-- Every release gets a semantic version: bump `APP_VERSION` in `js/panel.js`, `version` in `package.json` and `manifest.webmanifest`, and add a line to the README changelog.
+- Deploy: **Cloudflare Workers Static Assets**, git-connected to `github.com/nafaah14/DB-Panel-Designer` — every push to `main` is built (`npx wrangler deploy`) and published; live at https://db-panel-designer.a-nafaah.workers.dev. `wrangler.jsonc` serves the repo root as the site; `.assetsignore` lists what is *not* uploaded (above all `node_modules` — wrangler installs itself there during the deploy and its 129 MiB binary breaks the 25 MiB per-asset limit). Netlify is no longer used.
+- Every release gets a semantic version. Run `node tools/bump.mjs <x.y.z> "note" "note"` — it sets `APP_VERSION` (`js/panel.js`), `package.json`, `manifest.webmanifest` and the README title in one go, writes `version.json` (the notes shown under *What's new*), and rebuilds `dist/`. It refuses to write anything unless every file matched. Then add the README changelog line and commit `dist/` with the rest. **Push order matters for the update check:** the site only announces `version.json`'s version once it is deployed, so a release is live when `/version.json` on the live site shows it.
 
 ## Files
 | File | What it is |
@@ -16,13 +16,17 @@ Internal tool for designing **distribution boards (DB panels)** and **room elect
 | `css/app.css` | All styles (mobile-first; ≥900 px puts the parts sheet on the left) |
 | `js/panel.js` | Panel designer + shared app code: storage, projects, undo/redo, modals, toasts, menus, BOM, export, boot |
 | `js/room.js` | Room designer: item library, 2D wall/ceiling editor, Three.js 3D view |
+| `js/update.js` | Update check: reads `version.json`, compares with `APP_VERSION`, drives the menu dot and the `#updbar` banner |
+| `js/settings.js` | Menu → Settings: preferences, storage + backup/restore, version + update controls |
+| `version.json` | `{version,date,notes[]}` — written by `tools/bump.mjs`, fetched by `update.js`. **Must stay served** (not in `.assetsignore`) |
 | `vendor/three.min.js` | Three.js **r149** classic (non-module) build — last version with `build/three.min.js`. Keep it classic so the app runs from `file://` |
-| `tools/build-standalone.mjs` | Inlines CSS/JS into one HTML file |
+| `tools/build-standalone.mjs` | Inlines every `<script src>` / stylesheet into one HTML file (new scripts need no change here) |
+| `tools/bump.mjs` | Release helper: version everywhere + `version.json` + rebuild |
 
-Scripts are classic `<script>` tags sharing one global scope (top-level `const`/`let` are visible across files). Load order: three → panel → room. Boot runs on `DOMContentLoaded` (end of `panel.js`) so everything is defined first.
+Scripts are classic `<script>` tags sharing one global scope (top-level `const`/`let` are visible across files, so a duplicate top-level name in two files throws — but they are **not** properties of `window`, so from DevTools or an iframe reach them with `win.eval('name')`). Load order: three → panel → room → update → settings. Boot runs on `DOMContentLoaded` (end of `panel.js`) so everything is defined first.
 
 ## Data model (localStorage)
-- `pdes.projects.v1` → `{ [projectId]: { name, updated, appVersion, data } }`, `pdes.current`, `pdes.settings`
+- `pdes.projects.v1` → `{ [projectId]: { name, updated, appVersion, data } }`, `pdes.current`, `pdes.settings` (`mode, scheme, snap, labels, wireColor, wireSize, autoUpdate`), `pdes.upd` (last update-check result + which version's banner was dismissed)
 - `data = { panels, panelId, rooms, roomId }` — `migrate()` in panel.js upgrades older projects; `normRoom()` in room.js fills room defaults.
 - **`S.items` / `S.wires` / `S.layers` / `S.defs` are accessors onto the current panel**, installed by `bindPanelViews()`. They are not copies: seven places reassign them outright (`S.wires=S.wires.filter(…)`), and a setter is what makes those writes land in the right panel. Reassign `S.panels` itself when replacing the list (see `restore()`), never the views.
 - Undo/redo snapshots the whole `data` JSON (`pushUndo()` before a change, then `commit()` / `roomCommit()`).
@@ -73,10 +77,18 @@ A **service worker from another localhost project** (Daybook, cache `daybook-she
 - **v3 — done bar the floor plan:** panel-breaker links (2.4), elevations sheet (2.5), multiple rooms (2.6).
 - **Done since:** real wiring topology (2.7), panel size + fit check (2.8), multiple panels (2.9), room DB ↔ panel with circuits owned by the panel (2.10), industrial equipment + control-gear chains + circuit phase (2.11).
 - **Wanted next, in the user's words:** a **control panel mode** — a third library beside the domestic panel one, for power supplies, relays, terminal rails, pilot lights, push buttons and the like. The panel library stays domestic; this is a sibling, not a replacement. Likely shape: a `kind` on each panel (`'db' | 'control'`) choosing which `PANEL_LIB` it shows, since panels are already a list.
-- **Also wanted:** cloud sync. Everything is in `localStorage` on one device — export/import JSON is the only way to move or back up a project, and iOS Safari evicts script-written storage from sites not opened for ~7 days. `navigator.storage.persist()` is the cheap mitigation; Firestore behind a login is the real fix.
+- **Settings, version, updates, whole-device backup, persist() — done (2.12).** See "Settings & updates" below.
+- **Next (2.13): accounts + cloud sync, with guest use.** Everything is still in `localStorage` on one device; iOS Safari evicts script-written storage from sites not opened for ~7 days. Decided design: a **Cloudflare Worker + one SQLite Durable Object per username** (`worker/`), not Firestore (no Google project to hand) and not KV/D1 (eventual consistency / manual database id). Client = PBKDF2-stretched password, bearer sessions, optimistic per-project revisions (409 → keep both copies), explicit delete tombstones, history snapshots. `localStorage` stays the working store; guest mode = never signing in. The Worker and its API test (`tools/cloud-test.mjs`, run against `wrangler dev`, never the live site) land with 2.13. No password reset by design — every device keeps its own copy.
 - Not done: a floor-standing / MCC board (`db` is wall-mounted, and `depth` is read as a plain number in several places, so a per-form depth needs an `idep(it)` helper first); cable tray and trunking as drawn linear items.
 - **Next structural piece: the floor plan.** Rooms exist as a list but have no position relative to each other, which is what a floor plan needs — at minimum an x/y offset and a rotation per room, then a plan view that draws them together. Worth settling first: do adjacent rooms share a wall, or does each keep its own four?
 - Still not done, deliberately: conduit is radial (each point measured back to the board, not looped in), cable colours aren't split L/N/E, and junction boxes aren't used as routing waypoints.
+
+### Settings & updates (js/update.js, js/settings.js, 2.12)
+- **Update check:** `updCheck()` fetches `version.json` with `cache:'no-store'` (10 s timeout) and resolves `'ok'|'offline'|'unsupported'|'error'`, never throwing. It runs ~2.5 s after boot, on `visibilitychange` (if the last check is >45 min old), on `online`, and every 2 h while visible; `settings.autoUpdate===false` turns the automatic ones off. `file:` → `'unsupported'`.
+- State lives in `upd` and `pdes.upd`, so the orange dot on `#bMenu` (the `.fab.dot` class, also used for hidden layers) appears at once, not after the first fetch. The banner `#updbar` is dismissed **per version** (`upd.dismissed`); a newer release shows it again.
+- **No service worker, on purpose.** Workers Static Assets sends `max-age=0, must-revalidate`, so a plain `location.reload()` already picks up new files; and a worker registered on `localhost:5173` would outlive this project and answer for every other app that dev server hosts (see "Testing gotcha"). If offline support is ever added, scope it to the production host only.
+- Settings applies preferences on `change` (no Save button). `importBackup()` adds projects under **new ids** and never overwrites; the whole-device backup is `{app,kind:'backup',schema:1,projects:[{id,name,updated,appVersion,data}]}` and is recognised by `#fileIn` before the single-project check.
+- Storage use counts characters, not bytes (browsers meter `localStorage` in characters, ~5 M).
 
 ### Rooms (2.6)
 - `S.rooms` = `[room,…]`, `S.roomId` = the one being edited; `RM()` resolves it and is how every read in room.js gets the current room. `withRoom(r,fn)` runs something against another room and restores — used by the BOM, which covers all rooms.
