@@ -372,7 +372,10 @@ pl2.addEventListener('pointermove',e=>{if(!plp.has(e.pointerId)||!plg)return;plp
   /* The grab offset only means anything while it is the same wall; round
      a corner and the opening simply centres on the finger. */
   const along=n.k===plg.surf0?n.t-plg.along:n.t;
-  it.surf=n.k;it.x=settings.snap?Math.round(along/50)*50:Math.round(along);
+  /* Same idea as the wiring step: how fine the step is follows the zoom,
+     so a door can be placed to the millimetre when you are in close. */
+  const st=pview.k*PLS>=0.45?10:50;
+  it.surf=n.k;it.x=settings.snap?Math.round(along/st)*st:Math.round(along);
   withRoom(r,()=>clampItem(it));plSoon();updUI()}});
 function plEnd(e,cancel){if(!plp.has(e.pointerId))return;plp.delete(e.pointerId);if(!plg)return;const g=plg;
  if(g.type==='pinch'){plg=plp.size?{type:'none',moved:true}:null;return}

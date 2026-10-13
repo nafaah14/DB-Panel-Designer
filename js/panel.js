@@ -4,7 +4,7 @@
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.14.0';
+const APP_VERSION='2.15.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -773,7 +773,8 @@ function openHelp(){openModal(`<h3>How to use</h3><div class="help">
  <p><b>Multi-select:</b> tap <i>Select more</i> (or Shift/Ctrl-click) to pick several parts and wires, then move them to a layer or delete them together.</p>
  <p><b>Navigate:</b> drag empty space to pan, pinch or mouse-wheel to zoom, ⤢ to fit.</p>
  <p><b>Wiring a room:</b> switch to <i>Wiring</i> at the top. Pick a wall (A–D) or the ceiling to place points on a flat view with heights and distances, then open <i>3D</i> to see the whole room — drag to rotate, pinch to zoom, two fingers to pan. Tap a wall in 3D to edit it. <i>🏠 Rooms</i> switches between the rooms you drew in the plan.</p>
- <p><b>Keys:</b> W wire mode · L layers · Del delete · Ctrl+Z / Ctrl+Y · Ctrl+D copy · Esc deselect · in the plan, R rotates and the arrow keys nudge.</p>
+ <p><b>Place a point exactly:</b> slide it up to another one and it clicks edge to edge — the dashed guide shows what it locked onto. Arrow keys nudge the selected point 10 mm, or 1 mm with Shift. Zoom in for a finer step (50 mm across a wall, down to 1 mm up close), or type the exact distance and height in Edit.</p>
+ <p><b>Keys:</b> W wire mode · L layers · Del delete · Ctrl+Z / Ctrl+Y · Ctrl+D copy · Esc deselect · arrow keys nudge (Shift = 1 mm) · in the plan, R rotates.</p>
  <p class="muted">Everything autosaves on this device. Sign in under Menu → Account to keep a copy in the cloud and open your projects on your other devices. Export project and Settings → Back up everything make a file copy.</p></div><div class="mact"><button class="bb pri" data-close>Got it</button></div>`)}
 
 /* ---------- projects ---------- */
@@ -943,7 +944,9 @@ function reportError(err){console.error(err);toast('Error: '+((err&&err.message)
 window.addEventListener('error',e=>toast('Error: '+e.message));
 window.addEventListener('unhandledrejection',e=>toast('Error: '+((e.reason&&e.reason.message)||e.reason)));
 let tt=0;function toast(s){const t=$('#toast');t.textContent=s;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),2200)}
-document.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea')||!modal.classList.contains('hidden'))return;const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKey;
+/* `closest?.` — a key event only targets an element when something has
+   focus; on the bare document it doesn't. */
+document.addEventListener('keydown',e=>{if(e.target.closest?.('input,select,textarea')||!modal.classList.contains('hidden'))return;const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKey;
  if(appMode==='wiring'&&roomKey(e,k,c))return;
  if(appMode==='plan'&&planKey(e,k,c))return;
  if(c&&k==='z'){e.preventDefault();e.shiftKey?doRedo():doUndo()}else if(c&&k==='y'){e.preventDefault();doRedo()}else if(c&&k==='d'){e.preventDefault();dupSel()}

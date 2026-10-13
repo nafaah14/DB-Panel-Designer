@@ -1,13 +1,11 @@
 {
-  "version": "2.14.0",
-  "date": "2026-10-12",
+  "version": "2.15.0",
+  "date": "2026-10-13",
   "notes": [
-    "Three steps, in order: Plan draws the rooms, Wiring fills one with points and circuits, Panel builds the board. The top switch moves between them.",
-    "New floor plan: every room of the project seen from above, with walls, doors, windows and the names, sizes and areas.",
-    "Drag a room to move it — pushed up against a neighbour it snaps so the two share one wall instead of ending up with two.",
-    "Drag the handle on a wall to resize a room, Rotate for a quarter turn, and drag a door or window along its wall or round a corner onto the next one.",
-    "Add rooms, doors and windows from the + library, and tap “Wire this room →” to carry straight on to the wiring.",
-    "Dimensions, Points and Cables can each be turned off, and the whole plan exports as a PNG or SVG drawing.",
-    "Fixed: duplicating a room no longer forgets which circuit each point was on."
+    "Two points side by side now really do go side by side: slide a socket up to another and it clicks edge to edge instead of landing on top of it.",
+    "A dashed guide shows what a point has locked onto — the touching edge, the same height, or in line above or below.",
+    "Arrow keys nudge the selected point 10 mm, or 1 mm with Shift.",
+    "Zoom in and the step gets finer: 50 mm across a whole wall, 10 mm closer in, 1 mm right up close. Doors and windows on the floor plan too.",
+    "A switch directly above a socket still lines up on its centre."
   ]
 }

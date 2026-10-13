@@ -262,7 +262,7 @@ body.sheet-open #updbar{bottom:calc(var(--sheetH) + 68px)}
    Single-file vanilla JS · localStorage · no dependencies
    Scale: 2 px = 1 mm  (1 DIN module = 18 mm = 36 px)
    ========================================================= */
-const APP_VERSION='2.14.0';
+const APP_VERSION='2.15.0';
 const U=18, M=36, RP=14, RAIL_H=70, DH=180, STUB=22;
 const $=s=>document.querySelector(s);
 const uid=()=>Math.random().toString(36).slice(2,10);
@@ -1031,7 +1031,8 @@ function openHelp(){openModal(`<h3>How to use</h3><div class="help">
  <p><b>Multi-select:</b> tap <i>Select more</i> (or Shift/Ctrl-click) to pick several parts and wires, then move them to a layer or delete them together.</p>
  <p><b>Navigate:</b> drag empty space to pan, pinch or mouse-wheel to zoom, ⤢ to fit.</p>
  <p><b>Wiring a room:</b> switch to <i>Wiring</i> at the top. Pick a wall (A–D) or the ceiling to place points on a flat view with heights and distances, then open <i>3D</i> to see the whole room — drag to rotate, pinch to zoom, two fingers to pan. Tap a wall in 3D to edit it. <i>🏠 Rooms</i> switches between the rooms you drew in the plan.</p>
- <p><b>Keys:</b> W wire mode · L layers · Del delete · Ctrl+Z / Ctrl+Y · Ctrl+D copy · Esc deselect · in the plan, R rotates and the arrow keys nudge.</p>
+ <p><b>Place a point exactly:</b> slide it up to another one and it clicks edge to edge — the dashed guide shows what it locked onto. Arrow keys nudge the selected point 10 mm, or 1 mm with Shift. Zoom in for a finer step (50 mm across a wall, down to 1 mm up close), or type the exact distance and height in Edit.</p>
+ <p><b>Keys:</b> W wire mode · L layers · Del delete · Ctrl+Z / Ctrl+Y · Ctrl+D copy · Esc deselect · arrow keys nudge (Shift = 1 mm) · in the plan, R rotates.</p>
  <p class="muted">Everything autosaves on this device. Sign in under Menu → Account to keep a copy in the cloud and open your projects on your other devices. Export project and Settings → Back up everything make a file copy.</p></div><div class="mact"><button class="bb pri" data-close>Got it</button></div>`)}
 
 /* ---------- projects ---------- */
@@ -1201,7 +1202,9 @@ function reportError(err){console.error(err);toast('Error: '+((err&&err.message)
 window.addEventListener('error',e=>toast('Error: '+e.message));
 window.addEventListener('unhandledrejection',e=>toast('Error: '+((e.reason&&e.reason.message)||e.reason)));
 let tt=0;function toast(s){const t=$('#toast');t.textContent=s;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),2200)}
-document.addEventListener('keydown',e=>{if(e.target.closest('input,select,textarea')||!modal.classList.contains('hidden'))return;const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKey;
+/* `closest?.` — a key event only targets an element when something has
+   focus; on the bare document it doesn't. */
+document.addEventListener('keydown',e=>{if(e.target.closest?.('input,select,textarea')||!modal.classList.contains('hidden'))return;const k=e.key.toLowerCase(),c=e.ctrlKey||e.metaKey;
  if(appMode==='wiring'&&roomKey(e,k,c))return;
  if(appMode==='plan'&&planKey(e,k,c))return;
  if(c&&k==='z'){e.preventDefault();e.shiftKey?doRedo():doUndo()}else if(c&&k==='y'){e.preventDefault();doRedo()}else if(c&&k==='d'){e.preventDefault();dupSel()}
@@ -2034,6 +2037,13 @@ function roomKey(e,k,c){
  if(c&&k==='d'){e.preventDefault();roomDup();return true}
  if((k==='delete'||k==='backspace')&&rsel){e.preventDefault();roomDel();return true}
  if(k==='escape'){rselect(null);return true}
+ if(k.startsWith('arrow')&&rsel&&surf!=='3d'&&!c){const it=rfind(rsel);if(!it)return false;
+  e.preventDefault();const d=e.shiftKey?1:10;
+  /* The ceiling is a plan looking down, so "up" means towards Wall A —
+     the opposite sign to a wall elevation, where up is higher. */
+  const up=surf==='ceil'?-d:d;
+  roomNudge(it,k==='arrowleft'?-d:k==='arrowright'?d:0,k==='arrowup'?up:k==='arrowdown'?-up:0);
+  return true}
  if(k==='w'||k==='l')return true;
  if(!c&&k.length===1&&'012345'.includes(k)){setSurf(['3d','A','B','C','D','ceil'][+k]);return true}
  return false}
@@ -2112,6 +2122,13 @@ function draw2D(){if(appMode!=='wiring'||surf==='3d')return;const Rm=RM(),isC=su
  for(const it of items){const w=iw(it),h=ih(it),cx=it.x,cy=toSvgY(it);o+=`<g data-ri="${it.id}" transform="translate(${cx-w/2},${cy-h/2})">${rdef(it).draw(it.props,w,h)}<rect x="0" y="0" width="${w}" height="${h}" fill="#000" fill-opacity="0"/></g>`;
   if(it.props.label&&settings.labels!==false)o+=halo(cx,cy-h/2-6*u,it.props.label,10*u,'#1f2933');
   if(allDims&&!isC&&it.id!==rsel)o+=halo(cx,cy+h/2+13*u,rdef(it).model==='window'?`sill ${Math.round(it.y-h/2)}`:`h ${Math.round(it.y)}`,9.5*u,'#0a84ff')}
+ /* Snap guides, while a point is actually being dragged: a line through
+    whatever it locked onto — the touching edge when two sit side by
+    side, the shared centre or height when they line up. Without this you
+    can't tell a lock from a near miss. */
+ if(r2g&&r2g.type==='item'&&r2g.moved&&rsnap){const G='#b429d6';
+  if(rsnap.x&&rsnap.x.o)o+=ln(rsnap.x.gx,0,rsnap.x.gx,H,G,1.6,'7 5');
+  if(rsnap.y&&rsnap.y.o){const gy=isC?rsnap.y.gy:H-rsnap.y.gy;o+=ln(0,gy,len,gy,G,1.6,'7 5')}}
  // selection + dimensions
  const sel=rsel&&rfind(rsel);
  if(sel&&sel.surf===surf){const w=iw(sel),h=ih(sel),cx=sel.x,cy=toSvgY(sel),d=rdef(sel);
@@ -2147,11 +2164,53 @@ r2.addEventListener('pointerup',e=>r2End(e,false));r2.addEventListener('pointerc
 r2.addEventListener('lostpointercapture',e=>{if(r2p.has(e.pointerId))r2End(e,true)});
 r2.addEventListener('wheel',e=>{e.preventDefault();const f=Math.exp(-e.deltaY*.0015),k=clamp(rview.k*f,.08,8),s0=rview.k*RS,s=k*RS,wx=(e.clientX-rview.x)/s0,wy=(e.clientY-rview.y)/s0;rview.k=k;rview.x=e.clientX-wx*s;rview.y=e.clientY-wy*s;r2Soon()},{passive:false});
 let r2q=0;function r2Soon(){if(r2q)return;r2q=requestAnimationFrame(()=>{r2q=0;draw2D()})}
-/** Snap a position: 50 mm grid, standard heights, centre lines, and alignment with other items on the same surface. */
-function snapPos(it,x,y){if(!settings.snap)return {x:Math.round(x),y:Math.round(y)};const others=RM().items.filter(o=>o.surf===it.surf&&o.id!==it.id),len=surfLen(it.surf),H=surfH(it.surf);
- const pick=(v,cands,tol,step)=>{let best=null,bd=tol;for(const c of cands){const d=Math.abs(v-c);if(d<bd){bd=d;best=c}}return best!=null?best:Math.round(v/step)*step};
- const xs=[len/2,...others.map(o=>o.x)],ys=it.surf==='ceil'?[H/2,...others.map(o=>o.y)]:[...SNAP_H,...others.map(o=>o.y)];
- return {x:pick(x,xs,60,50),y:rdef(it).model==='window'?Math.round((y-ih(it)/2)/50)*50+ih(it)/2:pick(y,ys,70,50)}}
+/** How far a magnet reaches and what a free position rounds to, both
+ *  measured on screen rather than in millimetres: zooming in genuinely
+ *  gives finer control instead of fighting a fixed 50 mm grid. */
+function snapGrid(){const s=rview.k*RS;
+ return {tol:clamp(14/s,6,60),step:s>=1.2?1:s>=0.45?10:50}}
+let rsnap=null;                                    // what the drag last locked onto, for the guides
+/** Snap a dragged point. The candidates are the positions you actually
+ *  want next to an existing point: **edges touching** (side by side),
+ *  the same height, or dead in line above or below. Lining up on the
+ *  same axis is only offered when the two *can't* overlap — offering a
+ *  neighbour's centre line is what used to drop one socket on top of
+ *  another instead of beside it. */
+function snapPos(it,x,y){rsnap=null;
+ const {tol,step}=snapGrid();
+ if(!settings.snap)return {x:Math.round(x),y:Math.round(y)};
+ const others=RM().items.filter(o=>o.surf===it.surf&&o.id!==it.id);
+ const len=surfLen(it.surf),H=surfH(it.surf),W=iw(it),Hi=ih(it),isC=it.surf==='ceil';
+ const xs=[{v:len/2}],ys=isC?[{v:H/2}]:SNAP_H.map(v=>({v}));
+ /* Side-by-side pulls from further away than the other magnets: the
+    whole zone around a point should resolve to "beside it, left or
+    right" rather than let one drift into overlapping the other. */
+ const side=tol*1.8;
+ for(const o of others){const ow=iw(o),oh=ih(o);
+  /* If the two would collide at this height, the beside-magnet is
+     widened to reach the other's centre — so one point can never be
+     left sitting on top of another, only to the left or the right of
+     it. Clear of each other vertically, the normal reach applies and
+     lining them up in a column still works. */
+  const clash=Math.abs(o.y-y)<=(oh+Hi)/2+5,t=clash?Math.max(side,(ow+W)/2+1):side;
+  // beside it, edges touching — the guide marks the join
+  xs.push({v:o.x+(ow+W)/2,o,gx:o.x+ow/2,t},{v:o.x-(ow+W)/2,o,gx:o.x-ow/2,t});
+  if(!clash)xs.push({v:o.x,o,gx:o.x});                          // in line, clear of each other
+  ys.push({v:o.y,o,gy:o.y});
+  if(Math.abs(o.x-x)>(ow+W)/2+5)ys.push({v:o.y+(oh+Hi)/2,o,gy:o.y+oh/2,t:side},{v:o.y-(oh+Hi)/2,o,gy:o.y-oh/2,t:side})}
+ const pick=(v,cands)=>{let best=null,bd=Infinity;
+  for(const c of cands){const d=Math.abs(v-c.v);if(d<(c.t||tol)&&d<bd){bd=d;best=c}}
+  return best||{v:Math.round(v/step)*step}};
+ const px=pick(x,xs),py=rdef(it).model==='window'?{v:Math.round((y-Hi/2)/step)*step+Hi/2}:pick(y,ys);
+ rsnap={x:px,y:py};
+ return {x:px.v,y:py.v}}
+/** Arrow keys on the selected point: 10 mm a press, 1 mm with Shift.
+ *  One undo entry per burst, or holding a key would bury everything
+ *  else on the stack. */
+let nudgeId='',nudgeAt=0;
+function roomNudge(it,dx,dy){const now=Date.now();
+ if(it.id!==nudgeId||now-nudgeAt>900){pushUndo();nudgeId=it.id}
+ nudgeAt=now;it.x+=dx;it.y+=dy;clampItem(it);save();draw2D();updUI()}
 
 /* =========================================================
    3D view (Three.js)
@@ -2729,7 +2788,10 @@ pl2.addEventListener('pointermove',e=>{if(!plp.has(e.pointerId)||!plg)return;plp
   /* The grab offset only means anything while it is the same wall; round
      a corner and the opening simply centres on the finger. */
   const along=n.k===plg.surf0?n.t-plg.along:n.t;
-  it.surf=n.k;it.x=settings.snap?Math.round(along/50)*50:Math.round(along);
+  /* Same idea as the wiring step: how fine the step is follows the zoom,
+     so a door can be placed to the millimetre when you are in close. */
+  const st=pview.k*PLS>=0.45?10:50;
+  it.surf=n.k;it.x=settings.snap?Math.round(along/st)*st:Math.round(along);
   withRoom(r,()=>clampItem(it));plSoon();updUI()}});
 function plEnd(e,cancel){if(!plp.has(e.pointerId))return;plp.delete(e.pointerId);if(!plg)return;const g=plg;
  if(g.type==='pinch'){plg=plp.size?{type:'none',moved:true}:null;return}

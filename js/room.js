@@ -813,6 +813,13 @@ function roomKey(e,k,c){
  if(c&&k==='d'){e.preventDefault();roomDup();return true}
  if((k==='delete'||k==='backspace')&&rsel){e.preventDefault();roomDel();return true}
  if(k==='escape'){rselect(null);return true}
+ if(k.startsWith('arrow')&&rsel&&surf!=='3d'&&!c){const it=rfind(rsel);if(!it)return false;
+  e.preventDefault();const d=e.shiftKey?1:10;
+  /* The ceiling is a plan looking down, so "up" means towards Wall A —
+     the opposite sign to a wall elevation, where up is higher. */
+  const up=surf==='ceil'?-d:d;
+  roomNudge(it,k==='arrowleft'?-d:k==='arrowright'?d:0,k==='arrowup'?up:k==='arrowdown'?-up:0);
+  return true}
  if(k==='w'||k==='l')return true;
  if(!c&&k.length===1&&'012345'.includes(k)){setSurf(['3d','A','B','C','D','ceil'][+k]);return true}
  return false}
@@ -891,6 +898,13 @@ function draw2D(){if(appMode!=='wiring'||surf==='3d')return;const Rm=RM(),isC=su
  for(const it of items){const w=iw(it),h=ih(it),cx=it.x,cy=toSvgY(it);o+=`<g data-ri="${it.id}" transform="translate(${cx-w/2},${cy-h/2})">${rdef(it).draw(it.props,w,h)}<rect x="0" y="0" width="${w}" height="${h}" fill="#000" fill-opacity="0"/></g>`;
   if(it.props.label&&settings.labels!==false)o+=halo(cx,cy-h/2-6*u,it.props.label,10*u,'#1f2933');
   if(allDims&&!isC&&it.id!==rsel)o+=halo(cx,cy+h/2+13*u,rdef(it).model==='window'?`sill ${Math.round(it.y-h/2)}`:`h ${Math.round(it.y)}`,9.5*u,'#0a84ff')}
+ /* Snap guides, while a point is actually being dragged: a line through
+    whatever it locked onto — the touching edge when two sit side by
+    side, the shared centre or height when they line up. Without this you
+    can't tell a lock from a near miss. */
+ if(r2g&&r2g.type==='item'&&r2g.moved&&rsnap){const G='#b429d6';
+  if(rsnap.x&&rsnap.x.o)o+=ln(rsnap.x.gx,0,rsnap.x.gx,H,G,1.6,'7 5');
+  if(rsnap.y&&rsnap.y.o){const gy=isC?rsnap.y.gy:H-rsnap.y.gy;o+=ln(0,gy,len,gy,G,1.6,'7 5')}}
  // selection + dimensions
  const sel=rsel&&rfind(rsel);
  if(sel&&sel.surf===surf){const w=iw(sel),h=ih(sel),cx=sel.x,cy=toSvgY(sel),d=rdef(sel);
@@ -926,11 +940,53 @@ r2.addEventListener('pointerup',e=>r2End(e,false));r2.addEventListener('pointerc
 r2.addEventListener('lostpointercapture',e=>{if(r2p.has(e.pointerId))r2End(e,true)});
 r2.addEventListener('wheel',e=>{e.preventDefault();const f=Math.exp(-e.deltaY*.0015),k=clamp(rview.k*f,.08,8),s0=rview.k*RS,s=k*RS,wx=(e.clientX-rview.x)/s0,wy=(e.clientY-rview.y)/s0;rview.k=k;rview.x=e.clientX-wx*s;rview.y=e.clientY-wy*s;r2Soon()},{passive:false});
 let r2q=0;function r2Soon(){if(r2q)return;r2q=requestAnimationFrame(()=>{r2q=0;draw2D()})}
-/** Snap a position: 50 mm grid, standard heights, centre lines, and alignment with other items on the same surface. */
-function snapPos(it,x,y){if(!settings.snap)return {x:Math.round(x),y:Math.round(y)};const others=RM().items.filter(o=>o.surf===it.surf&&o.id!==it.id),len=surfLen(it.surf),H=surfH(it.surf);
- const pick=(v,cands,tol,step)=>{let best=null,bd=tol;for(const c of cands){const d=Math.abs(v-c);if(d<bd){bd=d;best=c}}return best!=null?best:Math.round(v/step)*step};
- const xs=[len/2,...others.map(o=>o.x)],ys=it.surf==='ceil'?[H/2,...others.map(o=>o.y)]:[...SNAP_H,...others.map(o=>o.y)];
- return {x:pick(x,xs,60,50),y:rdef(it).model==='window'?Math.round((y-ih(it)/2)/50)*50+ih(it)/2:pick(y,ys,70,50)}}
+/** How far a magnet reaches and what a free position rounds to, both
+ *  measured on screen rather than in millimetres: zooming in genuinely
+ *  gives finer control instead of fighting a fixed 50 mm grid. */
+function snapGrid(){const s=rview.k*RS;
+ return {tol:clamp(14/s,6,60),step:s>=1.2?1:s>=0.45?10:50}}
+let rsnap=null;                                    // what the drag last locked onto, for the guides
+/** Snap a dragged point. The candidates are the positions you actually
+ *  want next to an existing point: **edges touching** (side by side),
+ *  the same height, or dead in line above or below. Lining up on the
+ *  same axis is only offered when the two *can't* overlap — offering a
+ *  neighbour's centre line is what used to drop one socket on top of
+ *  another instead of beside it. */
+function snapPos(it,x,y){rsnap=null;
+ const {tol,step}=snapGrid();
+ if(!settings.snap)return {x:Math.round(x),y:Math.round(y)};
+ const others=RM().items.filter(o=>o.surf===it.surf&&o.id!==it.id);
+ const len=surfLen(it.surf),H=surfH(it.surf),W=iw(it),Hi=ih(it),isC=it.surf==='ceil';
+ const xs=[{v:len/2}],ys=isC?[{v:H/2}]:SNAP_H.map(v=>({v}));
+ /* Side-by-side pulls from further away than the other magnets: the
+    whole zone around a point should resolve to "beside it, left or
+    right" rather than let one drift into overlapping the other. */
+ const side=tol*1.8;
+ for(const o of others){const ow=iw(o),oh=ih(o);
+  /* If the two would collide at this height, the beside-magnet is
+     widened to reach the other's centre — so one point can never be
+     left sitting on top of another, only to the left or the right of
+     it. Clear of each other vertically, the normal reach applies and
+     lining them up in a column still works. */
+  const clash=Math.abs(o.y-y)<=(oh+Hi)/2+5,t=clash?Math.max(side,(ow+W)/2+1):side;
+  // beside it, edges touching — the guide marks the join
+  xs.push({v:o.x+(ow+W)/2,o,gx:o.x+ow/2,t},{v:o.x-(ow+W)/2,o,gx:o.x-ow/2,t});
+  if(!clash)xs.push({v:o.x,o,gx:o.x});                          // in line, clear of each other
+  ys.push({v:o.y,o,gy:o.y});
+  if(Math.abs(o.x-x)>(ow+W)/2+5)ys.push({v:o.y+(oh+Hi)/2,o,gy:o.y+oh/2,t:side},{v:o.y-(oh+Hi)/2,o,gy:o.y-oh/2,t:side})}
+ const pick=(v,cands)=>{let best=null,bd=Infinity;
+  for(const c of cands){const d=Math.abs(v-c.v);if(d<(c.t||tol)&&d<bd){bd=d;best=c}}
+  return best||{v:Math.round(v/step)*step}};
+ const px=pick(x,xs),py=rdef(it).model==='window'?{v:Math.round((y-Hi/2)/step)*step+Hi/2}:pick(y,ys);
+ rsnap={x:px,y:py};
+ return {x:px.v,y:py.v}}
+/** Arrow keys on the selected point: 10 mm a press, 1 mm with Shift.
+ *  One undo entry per burst, or holding a key would bury everything
+ *  else on the stack. */
+let nudgeId='',nudgeAt=0;
+function roomNudge(it,dx,dy){const now=Date.now();
+ if(it.id!==nudgeId||now-nudgeAt>900){pushUndo();nudgeId=it.id}
+ nudgeAt=now;it.x+=dx;it.y+=dy;clampItem(it);save();draw2D();updUI()}
 
 /* =========================================================
    3D view (Three.js)
